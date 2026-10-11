@@ -1,0 +1,5 @@
+{
+  "ConnectionStrings": { "Default": "Host=localhost;Port=5432;Database=provena;Username=provena;Password=SET-VIA-USER-SECRETS" },
+  "Frontend": { "BaseUrl": "http://localhost:5173" },
+  "SeedDemoData": false
+}

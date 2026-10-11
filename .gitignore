@@ -1,0 +1,46 @@
+# .NET build output
+**/bin/
+**/obj/
+artifacts/
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+.vscode/
+
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Test output
+**/TestResults/
+coverage/
+coverage.*
+*.coverage
+*.coveragexml
+
+# Local application data / uploads
+**/data/
+
+# Local environment variables
+.env
+.env.*
+!.env.example
+
+# Local ASP.NET configuration
+**/appsettings.Development.json
+**/appsettings.Local.json
+**/appsettings.*.local.json
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
