@@ -1,0 +1,22 @@
+# Product scope
+
+## Observed in the supplied source
+
+Provena supports an organization's operational evidence workflow around a shipment. An authenticated user manages suppliers and products, creates a shipment and its six-item case checklist, generates a public supplier link, reviews submitted evidence, downloads a ZIP and optionally records an external DDS reference when completing the case.
+
+Public suppliers use possession of a secret link rather than a user account. They submit production information, supporting files and polygon geolocation, and mark the submission complete. The internal user remains the reviewer. `Owner` and `Member` exist as membership roles, but review endpoints currently require authentication only, without distinct reviewer permissions.
+
+Other implemented source paths include supplier/product/shipment CSV imports, a case list with filters and pagination, dashboard counts, request revocation/rotation and shipment archival. Persistence source is included in this revision; these remain source observations, not a verified runtime result.
+
+## Explicit direction and boundaries
+
+- AI may implement routine engineering; the owner decides product scope, domain rules and significant architecture changes.
+- Supplier is not necessarily Producer. Producers and ProductionPlots are target concepts; see [EUDR_DOMAIN](EUDR_DOMAIN.md) and ADR 0002.
+- Evidence collection, format validation, internal review and regulatory conclusions are separate responsibilities. A supplier submission must never by itself mean compliance.
+- A ZIP is operational documentation. The app has no DDS submission connector, deforestation analysis, country-risk provider or regulatory eligibility engine.
+
+## Not implemented / not promised
+
+No frontend is included here. No real email delivery, invitations, organization switching, refresh-token workflow, background worker or production hosting configuration is supplied. Multi-product shipment lines, producer/plot attribution and historical evidence versioning are not modeled. Do not add these implicitly while implementing smaller work.
+
+Use [API](API.md) for contracts, [EUDR_DOMAIN](EUDR_DOMAIN.md) for state semantics and [AI_DISCOVERY_REPORT](AI_DISCOVERY_REPORT.md) for prioritized gaps. This document is not a legal specification or a statement of current regulatory deadlines.

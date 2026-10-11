@@ -1,0 +1,17 @@
+---
+name: api-contract-change
+description: Use for Provena endpoint, request or response DTO, HTTP error, pagination, enum, CSV or export contract changes.
+---
+
+# api-contract-change
+
+Paths below are relative to the repository root. Load this procedure only for a matching task.
+
+1. Read `docs/API.md`; locate affected controller → request/validator → service projection and HTTP tests. Inspect `scripts/smoke.py` if its flow is affected. The frontend is not supplied.
+2. State the current and proposed contract: route, auth, fields/nullability, enum/string behaviour, errors/status codes and compatibility. Include CSV headers/ZIP fields when relevant. Ask about unapproved breaking changes.
+3. Keep server validation and explicit public projections. Never expose entity internals just because an internal endpoint returns entities. Read SECURITY only if auth/tenant/token/files or sensitive data changes.
+4. Make a narrow implementation; preserve cancellation, transactions and status rules. No new abstraction or API version scheme without a concrete decision.
+5. Add meaningful HTTP tests for changed success and failure responses and relevant tenant denial. Test actual serialization, not only DTO constructors.
+6. Update the owning API section and affected consumers/tests; run `verify-change`. Report client compatibility not tested separately from server tests.
+
+Output: contract delta, compatibility decision, files/tests and remaining gaps.

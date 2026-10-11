@@ -1,0 +1,10 @@
+# Architecture decision records
+
+An ADR preserves a significant decision, its context and consequences. It is not an implementation plan or a place to declare every coding convention. Start from [TEMPLATE](TEMPLATE.md). Keep decisions small and link source evidence.
+
+| Record | Status / meaning |
+| --- | --- |
+| [0001: service architecture](0001-single-api-service-architecture.md) | Observed baseline; reconstructed from source, no historical approval claimed |
+| [0002: production concepts](0002-supplier-producer-production-plot.md) | Accepted target direction explicitly supplied by owner; not implemented |
+
+Status vocabulary: Proposed (awaiting owner decision), Accepted (approved direction), Observed baseline (source-derived, history unknown), Superseded (link replacement). Track implementation separately: not implemented / partial / implemented with evidence. Never convert a target decision into a claim about current schema. Supersede material decisions rather than silently rewriting their history; correct factual mistakes transparently.

@@ -1,0 +1,44 @@
+# Security boundaries and gaps
+
+This file separates observed code controls from required invariants and recommended work. The included AppDbContext, initial SQL and snapshot establish concrete tenant controls in source; runtime verification remains pending. This is a source review, not a penetration test or a production-readiness certification.
+
+## Current controls and limits
+
+| Boundary | Observed control | Unverified or absent |
+| --- | --- | --- |
+| Internal API | Authorize attributes; JWT issuer/audience/signature/lifetime checks; 30-second clock skew | No fallback policy or reviewer/Owner endpoint policy; live membership validation only in Me, not all operations |
+| Password login | Identity; unique email configured; 12-character complexity; lockout configured at 5 failures / 15 minutes; CheckPasswordSignInAsync lockout enabled | End-to-end lockout behaviour not tested here; email verification/reset/refresh/revocation workflows absent |
+| Organization | Query filters on all ten TenantEntity types; tracked async-save ownership guard; composite tenant-aware FKs for major relationships; explicit organization in case lock SQL | Identity/Organization/OrganizationUser are unfiltered; alternative save overloads, raw SQL and bulk writes are outside the custom guard; some attribution IDs have no FK |
+| Public capability | Random 32-byte base64url token; SHA-256 stored hash; strict 43-character shape; expiry/revocation; post-lock hash/lifetime recheck | Anyone holding link acts as supplier; no supplier identity proof; no one-use rule |
+| Rate limits | Per-RemoteIpAddress fixed windows: auth 10/5 minutes, supplier 60/minute, no queue | Process-local only; no reverse-proxy forwarded-header configuration or global upload/tenant quota |
+| File names/paths | Basename sanitization, extension/MIME allowlist, generated storage keys validated by regex, local root outside any configured static serving | MIME supplied by client; no magic-byte sniffing, antivirus, quarantine or durable orphan cleanup |
+| Geometry | Shape/range/topology/depth checks | No truth/ownership/deforestation checks; no explicit vertex limit |
+| Errors/logs | Generic unexpected errors; app logs omit tokens/SQL/body; ProblemDetails Instance removed; selected framework logs suppressed | Proxy/APM/access logs outside this code can retain token paths; email stub logs recipient email |
+| Browser boundary | Explicit CORS origins, wildcard rejected; no-store, no-referrer, nosniff; production HTTPS redirect/HSTS | CORS is not authorization; host/proxy/TLS topology not configured; AllowedHosts is `*` |
+
+## Public token flow
+
+`SupplierRequestService.Resolve` is the sole cross-tenant business lookup in supplied application source: IgnoreQueryFilters on SupplierRequests for a well-formed hash. Unknown/revoked/expired all return 404. Only after validation does it set organization context. LockPublic locks the corresponding case within the caller's transaction, rejects terminal cases and rechecks the token. Never reuse this bypass to serve arbitrary data.
+
+Create returns a sensitive link once; Regenerate overwrites the same row's hash and invalidates the old link, resetting request timestamps but retaining submission/evidence data. Revoke invalidates access. Completion of the supplier request does not invalidate its token; it can still read/edit until expiry/revocation or a terminal case blocks it. Public GET records OpenedAtUtc and an audit event. Public responses use explicit projections; no audit/reviewer notes/internal notes or arbitrary organization data should be added.
+
+Only hashes are intended for database persistence. TokenHash has a unique index; a separate partial index allows at most one non-revoked request per case, including expired/completed requests until revoked. Query filters and a tracked async-save guard are implemented; see DATABASE for exact scope. Token exposure in a URL also requires a reviewed frontend and proxy logging configuration; neither is included.
+
+## Required invariants for future work
+
+- Authorize every internal endpoint server-side and verify record ownership on every read/write/file/export/import path. Never accept OrganizationId from request payload as authority.
+- Cross-tenant identifiers must not reveal another organization's data. Preserve the existing not-found pattern where applicable; relationship validation can return 400 without disclosing foreign details.
+- Extend negative HTTP tests for the changed boundary. Cover another organization, missing auth, malformed/rotated/revoked/expired token and wrong case/document IDs as relevant.
+- Never log or commit credentials, raw supplier tokens/URLs, token hashes, raw uploaded evidence or connection strings. Do not enable sensitive EF logging as a workaround. Review retention of email addresses already logged by the stub.
+- Keep file keys server-generated and internal. Validate size/type/name before storage; do not execute or serve uploaded active content inline. Keep successful content validation separate from reviewer acceptance.
+- Do not equate the Owner/Member enum or a frontend button with a backend authorization rule. New permission decisions need owner confirmation; test denial explicitly.
+
+## Prioritized gaps / recommendations
+
+1. **Persistence assurance:** run existing tenant-isolation tests and add direct guard/constraint tests. `SaveChangesAsync(CancellationToken)` is the only overridden save entry point; synchronous saves, the bool overload, bulk operations and direct SQL need equivalent safeguards before use. No PostgreSQL row-level-security policy or audit immutability trigger is supplied.
+2. **Before external rollout:** decide live membership/token invalidation and review/waiver permissions, validate proxy IP trust/TLS/redaction and deploy a real delivery strategy. Do not register production email with the current stub and claim messages were sent.
+3. **Uploads:** define scanning/quarantine, quotas and resource limits appropriate to exposure. Public geometry validation runs before token resolution and can consume resources for invalid tokens; current rate limiting is only per IP/process.
+4. **Historical evidence:** decide snapshots/versioning and append-only protection. A completed case still references mutable supplier/product data, and only the tracked async-save path rejects audit modifications; direct database changes are not blocked by a supplied trigger.
+5. **Assurance:** test concurrent rotation/revocation vs public mutation, file cleanup failure and all cross-tenant resource types. Existing tests are narrower; see [TESTING](TESTING.md).
+
+No security finding was silently fixed during foundation creation. Findings requiring a product/architecture choice belong in a scoped follow-up plan, with explicit acceptance criteria.

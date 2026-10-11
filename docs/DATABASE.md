@@ -1,0 +1,78 @@
+# Persistence and schema workflow
+
+## Source of truth
+
+The second archive includes `src/Provena.Api/Data/AppDbContext.cs`, `DesignTimeFactory.cs`, `Migrations/20261010180000_InitialCreate.cs` and `Migrations/AppDbContextModelSnapshot.cs`. The earlier missing-source finding is resolved. This document describes declared mappings and SQL, not an inspected live database or an executed migration.
+
+AppDbContext derives from `IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>`. OnModelCreating calls the Identity base configuration, then defines application mappings inline. PostgreSQL via Npgsql is the provider; compose/tests use PostgreSQL 17. There is no repository layer, separate mapping assembly or PostGIS column. NetTopologySuite validates geometry in application memory.
+
+## IDs, columns, timestamps and concurrency
+
+- Entity IDs are Guid values initialized with Guid.NewGuid; SQL uses uuid. Each tenant type has primary key Id and alternate key `(OrganizationId, Id)`; `HasBaseType(null)` maps each independently rather than one inheritance table.
+- Entity initializers set CreatedAtUtc/UpdatedAtUtc using UTC DateTimeOffset; SQL uses timestamp with time zone. The overridden `SaveChangesAsync(CancellationToken)` updates UpdatedAtUtc on modified Entity instances. It does not make CreatedAtUtc immutable.
+- ApplicationUser and OrganizationUser have timestamp properties but do not inherit Entity; this override does not maintain their UpdatedAtUtc. No timestamp trigger is supplied.
+- Shipment.Quantity and SupplierSubmission.ConfirmedQuantity use numeric(20,6). DateOnly fields use date. Domain enums persist as integers; preserve numeric meanings when adding/reordering members. JSON uses names independently of SQL storage.
+- GeoSubmission.RawGeoJson and AuditEvent.MetadataJson use jsonb. Other strings without a specific maximum default to 4000 characters, including inherited Identity strings without an existing configured maximum. Exceptions include Identity name/email limits, user first/last name (100), organization name (200), OIB (11), and token hash (64).
+- API validators are often stricter than database columns (e.g. supplier name max 200 vs varchar(4000)); database constraints do not duplicate every input rule. Positive quantities, country codes and enum eligibility are validated in application code, not SQL CHECK constraints here.
+- The snapshot marks Identity user/role ConcurrencyStamp as concurrency tokens. Tenant business entities have no configured row-version/concurrency token; case operations instead use explicit PostgreSQL row locks where documented in ARCHITECTURE.
+
+## Tenant and audit guards
+
+ConfigureTenant is applied to all ten tenant types: Supplier, Product, Shipment, EudrCase, EudrRequirement, SupplierRequest, SupplierSubmission, CaseDocument, GeoSubmission and AuditEvent. Each gets an organization FK and query filter `OrganizationId == TenantId`; TenantId reads the scoped TenantContext. Organization, OrganizationUser and Identity sets are not globally tenant-filtered: callers must scope those queries deliberately.
+
+`SaveChangesAsync(CancellationToken)` inspects tracked Entity instances. For added/modified/deleted TenantEntity rows it rejects an empty current tenant or a current OrganizationId different from the tenant; for modifications/deletions the original OrganizationId must also match. This prevents simply reassigning a foreign tracked row to the current tenant through this save path. It rejects tracked AuditEvent modifications/deletions before saving. Services stamp OrganizationId explicitly; the context does not silently fill it in.
+
+**Scope matters:** only this async overload is overridden. Synchronous SaveChanges, the async bool overload, ExecuteUpdate/ExecuteDelete and raw SQL do not run this custom guard. Bulk operations may still have query filters unless bypassed, but do not receive the tracked-write/audit/timestamp checks. No database row-level-security policy, audit trigger or restricted audit-table grants are supplied. Do not describe these controls as universal database immutability. Ordinary application saves currently call the guarded overload; expiry integration tests deliberately use IgnoreQueryFilters + ExecuteUpdateAsync.
+
+## Relationships and indexes declared in model and initial SQL
+
+| Relationship / key | Enforced declaration |
+| --- | --- |
+| Membership | OrganizationUser PK `(OrganizationId, UserId)`, unique UserId: one organization per user in MVP; organization/user FKs |
+| Supplier / Product references | Partial unique `(OrganizationId, ExternalReference)` when ExternalReference IS NOT NULL; null values allowed repeatedly |
+| Shipment | Unique `(OrganizationId, ReferenceNumber)`; composite FKs `(OrganizationId, SupplierId/ProductId)` reference matching tenant alternate keys |
+| Case | Unique ShipmentId ensures at most one case per shipment; composite FK to shipment; `(OrganizationId, Status)` index |
+| Requirement | Unique `(EudrCaseId, Type)`; composite FK to case |
+| SupplierRequest | Globally unique TokenHash; partial unique EudrCaseId WHERE RevokedAtUtc IS NULL; composite FKs to case and supplier |
+| Submission / geolocation | Unique EudrCaseId in each table; composite FK to case |
+| Documents | Multiple per case; composite FK to case |
+| Audit | Optional composite FK to case, organization FK, `(EudrCaseId, CreatedAtUtc)` index |
+
+All application relationships above use DeleteBehavior.Restrict / SQL ON DELETE RESTRICT. Identity claim/login/role/token relationships use cascade as declared by Identity's model and SQL. Composite case/foreign-reference indexes support lookups. Unique constraints enforce **at most one**, not that a related record necessarily exists; shipment service creates its case/checklist transactionally.
+
+The request partial index counts expired or completed requests until revoked; this matches Create's refusal when any non-revoked request exists. It does not enforce expiry or delivery semantics.
+
+No FK is declared for Documents/Geolocations/AuditEvents.SupplierRequestId, AuditEvents.ActorUserId or Requirements.ReviewedByUserId. Request.SupplierId and request.CaseId are each tenant-consistent, but the schema does not prove the supplier equals that case's shipment supplier. Service flow establishes these associations today; future alternate write paths must not assume database enforcement of them.
+
+## Deletion behaviour
+
+Unused supplier/product rows are removed; shipment references cause a service 409 and declared FK restrictions protect referenced rows. Shipment DELETE archives its case and revokes requests, retaining evidence. Documents are deleted with best-effort byte cleanup; current geolocation is replaced in place. No general soft-delete column or evidence-retention/versioning policy exists. [EUDR_DOMAIN](EUDR_DOMAIN.md) owns terminal-state exceptions.
+
+## Migration caveat before the next schema change
+
+InitialCreate.Up/Down use embedded raw PostgreSQL SQL. Down drops all application/Identity tables with CASCADE: this is destructive and not a safe production rollback strategy. BuildTargetModel delegates to `AppDbContextModelSnapshot.BuildInitialModel`. The same snapshot class is the file EF updates for subsequent migrations.
+
+That coupling is a concrete maintenance risk: replacing the snapshot can remove the helper (breaking compilation), or changing the helper can change the historical migration's target model. The comment calling the initial mapping immutable does not enforce independence. **Before accepting a new migration, make sure the original target model is frozen independently and the current snapshot can evolve.** A reviewed change may move the original model to a dedicated immutable helper or a normal migration-specific target-model implementation. Do not delete the historical target or regenerate the initial migration over existing data. No migration code was changed by this documentation task.
+
+The integration fixture's HasPendingModelChanges assertion checks current model vs snapshot, not whether hand-authored migration SQL matches either. Clean database migration plus real schema/constraint checks and upgrade tests are needed. Static review confirms major declared relationships/types/indexes; it does not prove complete model/DDL equivalence.
+
+## Schema-change procedure (project rule)
+
+1. Read affected entities/callers, AppDbContext mappings and current migration history. Identify business cardinality, ownership, historical data and contract effects; ask about unresolved decisions.
+2. Check query filters and write paths separately, including raw/bulk APIs and unfiltered membership/Identity sets. Preserve case locks and transaction ordering. Inspect DTO exposure.
+3. Resolve the historical target-model coupling before generating the next migration. Modify entity/mapping together, inspect generated Up/Down/snapshot/SQL and unrelated schema churn. Do not use EnsureCreated to bypass migrations.
+4. Review backfill, nullability, locking, destructive operations, tenant-aware relationships, rollout and rollback. Do not rewrite an applied migration to achieve a new schema.
+5. Test clean PostgreSQL migration and upgrade with existing rows, constraints, guard behaviour and cross-tenant negatives. Commit the migration and snapshot together.
+6. Update authoritative persistence/domain/API docs only where behaviour or conventions changed, then run repository verification.
+
+From repository root, with a valid development connection string and SDK/packages available:
+
+```sh
+dotnet tool restore
+dotnet ef migrations list --project src/Provena.Api --startup-project src/Provena.Api
+dotnet ef migrations add DescriptiveChange --project src/Provena.Api --startup-project src/Provena.Api --output-dir Data/Migrations
+dotnet ef migrations script --idempotent --project src/Provena.Api --startup-project src/Provena.Api
+dotnet ef database update --project src/Provena.Api --startup-project src/Provena.Api
+```
+
+Run the add command only for an approved schema change after addressing the coupling above; setup of an existing database does not need a new migration. Commands are source-derived, not verified successful here. DesignTimeFactory reads optional appsettings.json from its current working directory, user-secrets and environment variables, and requires ConnectionStrings:Default. It does not load appsettings.Development.json explicitly or require Program's JWT startup configuration. Using environment/user-secrets avoids current-directory ambiguity. The final update command should target a local/disposable database during development. API startup never migrates; ApiFactory calls MigrateAsync for tests.
