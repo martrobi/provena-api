@@ -21,7 +21,7 @@ coverage.*
 *.coveragexml
 
 # Local application data / uploads
-**/data/
+**/data/files/
 
 # Local environment variables
 .env
