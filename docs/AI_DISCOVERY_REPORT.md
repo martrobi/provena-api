@@ -1,5 +1,7 @@
 # AI foundation discovery report
 
+> Historical discovery snapshot. Current coding-agent instructions live in `AGENTS.md`; current practical setup for Codex and Claude Code lives in `docs/AI_DEVELOPMENT_GUIDE_HR.md`. Do not treat this report as active agent configuration.
+
 Initial review: 2026-10-11; persistence revision: 2026-10-12 (Europe/Zagreb). Current source: `provena-api-main (2).zip`, archive comment `50202c80d9b9fac78886219ee2d01d0fb7147305`. The initial archive was `fb87c157ace5fb6ab29cd343194776007703d8d2`. No live Git repository, database or frontend was accessed.
 
 ## Executive finding and historical correction
@@ -67,7 +69,7 @@ Supplier–Producer cardinality; plot identity/ownership and shipment attributio
 
 ## Foundation delivered and maintenance
 
-The requested structure is retained: concise AGENTS router, ten topical/owner documents plus this report, five repository skills, ADR/plan templates and two evidence-labeled ADRs. README and a thin `.github/copilot-instructions.md` provide entry points without duplicating the rule set. No new product feature, application abstraction, dependency, CI deployment or infrastructure was introduced.
+The requested structure is retained: concise AGENTS router, ten topical/owner documents plus this report, five repository skills, ADR/plan templates and two evidence-labeled ADRs. README points to the canonical `AGENTS.md` entry point without duplicating the rule set. No new product feature, application abstraction, dependency, CI deployment or infrastructure was introduced.
 
 This revision replaces obsolete missing-source guidance in every affected document/procedure with observed persistence behaviour, scope limits and migration precautions. The initial incomplete-archive history is preserved here, not as an active blocker. The PowerShell script retains restore/Release build/unit/integration commands and fail-fast errors; its stale missing-source diagnostic is removed. Shell verification and smoke scripts are unchanged.
 
@@ -93,7 +95,6 @@ Modified: `README.md`, `scripts/verify.ps1`.
 Created:
 
 - `AGENTS.md`
-- `.github/copilot-instructions.md`
 - `docs/PRODUCT.md`
 - `docs/CODEBASE_MAP.md`
 - `docs/EUDR_DOMAIN.md`
@@ -118,4 +119,4 @@ Created:
 
 ## Next step
 
-Run the verification script locally with .NET 10 and Docker and diagnose any actual failures. Before a schema feature, address F14 without changing historical schema behaviour. Then give Copilot a narrow feature and acceptance criteria, starting from AGENTS.md. Practical Croatian prompts are in [AI_DEVELOPMENT_GUIDE_HR](AI_DEVELOPMENT_GUIDE_HR.md).
+Run the verification script locally with .NET 10 and Docker and diagnose any actual failures. Before a schema feature, address F14 without changing historical schema behaviour. Then give your coding agent (Codex or Claude Code) a narrow feature and acceptance criteria, starting from AGENTS.md. Practical Croatian prompts are in [AI_DEVELOPMENT_GUIDE_HR](AI_DEVELOPMENT_GUIDE_HR.md).

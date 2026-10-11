@@ -1,4 +1,4 @@
-# Kako razvijati Provenu uz OpenAI Codex u VS Codeu
+# Kako razvijati Provenu uz Codex i Claude Code u VS Codeu
 
 ## Što je riješeno i što prvo provjeriti
 
@@ -36,14 +36,27 @@ Markdown nije jamstvo poslušnosti, test prolaza ili sigurnosti. Njegova vrijedn
 
 Tehnička dokumentacija je na engleskom radi dosljednog konteksta za agente; ovaj vodič je na hrvatskom. Ne treba svaki zadatak uključiti vodič.
 
-## Postavi Codex u VS Codeu
+## Postavi Codex i Claude Code u VS Codeu
+
+Oba alata koriste isti projektni izvor pravila: `AGENTS.md`. Nemoj održavati dvije kopije arhitekture, sigurnosnih pravila ili workflowa. `.agents/skills/` ostaje jedino mjesto za Provenine repo-procedure; router iz `AGENTS.md` kaže kada ih treba otvoriti.
+
+### Codex
 
 1. U VS Codeu instaliraj službenu [Codex ekstenziju za VS Code](https://marketplace.visualstudio.com/items?itemName=OpenAI.chatgpt) izdavača OpenAI.
 2. Otvori korijenski direktorij Provena repozitorija, otvori Codex bočnu traku i prijavi se svojim ChatGPT računom. Ako ikona nije vidljiva, u Command Paletteu pokreni `Codex: Open Codex Sidebar`.
-3. Na početku zadatka uputi Codex na `AGENTS.md`. To je glavni projektni router; ne stvaraj paralelnu kopiju pravila. Codex podržava `AGENTS.md` kao upute repozitorija. Otvori odgovarajući `.agents/skills/<naziv>/SKILL.md` kada router ili opseg zadatka to traži.
-4. Provjeri kontekst kratkim zadatkom: „Pročitaj AGENTS.md. Za promjenu validacije CN koda navedi koje relevantne dokumente, skillove, datoteke i testove trebaš otvoriti. Ne mijenjaj kod.” Očekuj API, validator i relevantne testove te domenu samo ako je potrebna. Potom pregledaj diff i potvrdi da se Codex drži opsega.
+3. Codex učitava `AGENTS.md` kao repo-upute. Kad tablica u `AGENTS.md` usmjeri zadatak na `.agents/skills/<naziv>/SKILL.md`, slijedi taj postupak. Ne stvaraj paralelnu kopiju pravila.
 
-OpenAI upute za [Codex IDE ekstenziju](https://developers.openai.com/codex/ide) opisuju instalaciju, prijavu i početak razgovora u IDE-u. Službene [upute za AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md) opisuju projektne upute, a [OpenAI Codex ekstenzija na Marketplaceu](https://marketplace.visualstudio.com/items?itemName=OpenAI.chatgpt) vodi na aktualnu stranicu ekstenzije. Provjereno 2026-10-12. Setup ovdje opisuje klijent, ali ne mijenja tvoje VS Code postavke niti instalira ekstenziju.
+### Claude Code
+
+1. U VS Code Extensions otvori `Ctrl+Shift+X`, potraži **Claude Code** i instaliraj službenu Anthropic ekstenziju. Otvori Provena root i prijavi se Claude računom; Claude Pro je dovoljan i za prijavu kroz ekstenziju nije potreban zaseban API ključ.
+2. Koristi Claude Code v2.1.277 ili noviji. Te verzije mogu izravno učitati postojeći `AGENTS.md`, pa za ovaj repo **ne treba dodavati `CLAUDE.md`** samo radi dupliranja instrukcija.
+3. Claude po zadanom čita `AGENTS.md` kada u radnom direktoriju ili iznad njega nema projektnog `CLAUDE.md`/`CLAUDE.local.md`. Provjeri učitavanje naredbom `/memory` ili porukom pri početku sesije koja navodi da je `AGENTS.md` učitan.
+4. Claude ne auto-discovera `.agents/skills/` kao svoj nativni `.claude/skills/` direktorij. U Proveni je to namjerno: `AGENTS.md` eksplicitno usmjerava na odgovarajući `.agents/skills/.../SKILL.md`, koji Claude može pročitati kao običnu repo-proceduru. Nemoj kopirati iste skillove u `.claude/skills/` jer bi nastala dva izvora istine.
+5. Ako ikad moraš podržati stariju Claude Code sesiju koja ne čita `AGENTS.md`, tada dodaj minimalni `CLAUDE.md` s retkom `@AGENTS.md`; ne kopiraj sadržaj `AGENTS.md`.
+
+Za oba alata provjeri kontekst kratkim zadatkom: „Pročitaj projektne upute. Za promjenu validacije CN koda navedi koje relevantne dokumente, skillove, datoteke i testove trebaš otvoriti. Ne mijenjaj kod.” Očekuj API, validator i relevantne testove te domenu samo ako je potrebna. Potom pregledaj diff i potvrdi da se agent drži opsega.
+
+OpenAI upute za [Codex IDE ekstenziju](https://developers.openai.com/codex/ide) i [AGENTS.md](https://developers.openai.com/cookbook/examples/gpt-5/codex_prompting_guide) opisuju Codex setup. Anthropicove upute za [Claude Code u VS Codeu](https://code.claude.com/docs/en/ide-integrations) i [AGENTS.md / project instructions](https://code.claude.com/docs/en/memory) opisuju Claude setup. Provjereno 2026-10-12.
 
 ## Skills, ADR i plan nisu ista stvar
 
@@ -152,4 +165,4 @@ Ne traži promjene dokumentacije za svako preimenovanje lokalne varijable. Kad p
 - Popravljanje greške uklanjanjem testa, warning-as-error ili sigurnosne provjere.
 - Traženje velikog featurea preko nestabilnog builda. Prvo potvrdi bazni build i testove.
 
-Prvi korak može biti lokalna provjera bez Dockera kako je navedeno u TESTING.md; prije mergea pokreni punu provjeru s integracijskim testovima. Ako nešto padne, podijeli točan izlaz s Codexom i zatraži usku analizu uzroka. Prije schema featurea riješi povezanost početne migracije i snapshota. Za ostali razvoj koristi jasno zadane promjene s ograničenim discoveryjem.
+Prvi korak može biti lokalna provjera bez Dockera kako je navedeno u TESTING.md; prije mergea pokreni punu provjeru s integracijskim testovima. Ako nešto padne, podijeli točan izlaz s agentom koji radi na zadatku i zatraži usku analizu uzroka. Prije schema featurea riješi povezanost početne migracije i snapshota. Za ostali razvoj koristi jasno zadane promjene s ograničenim discoveryjem.
