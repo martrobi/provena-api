@@ -1,10 +1,10 @@
-# Kako razvijati Provenu uz GitHub Copilot
+# Kako razvijati Provenu uz OpenAI Codex u VS Codeu
 
 ## Što je riješeno i što prvo provjeriti
 
-Novi ZIP sada sadrži AppDbContext, EF model, design-time factory, početnu migraciju i snapshot. Prije ih je široko pravilo `.gitignore` izostavilo iz Gita. U ovom paketu više nema aktivne tvrdnje da persistence sloj nedostaje. Ne trebaš ga ponovno implementirati.
+Repozitorij sadrži AppDbContext, EF model, design-time factory, početnu migraciju i snapshot. Persistence sloj postoji; ne treba ga ponovno implementirati.
 
-U kodu su potvrđeni tenant filtri, provjere organizacije pri spremanju i složeni strani ključevi. To nije isto što i izvršeni test. Na svojem računalu s .NET 10 i Dockerom prvo pokreni `pwsh -File scripts/verify.ps1`. Ovo okruženje nema potrebne alate pa ne tvrdim da je build prošao.
+U kodu postoje tenant filtri, provjere organizacije pri spremanju i složeni strani ključevi. To nije isto što i izvršeni test. Za lokalnu povratnu informaciju bez Dockera pokreni restore, Release build i unit testove kako je opisano u [TESTING.md](TESTING.md). Puna provjera `pwsh -File scripts/verify.ps1` uključuje i integracijske testove koji zahtijevaju Docker.
 
 Prije prve nove migracije pročitaj DATABASE.md: početna migracija koristi metodu iz datoteke snapshota koju EF mijenja pri budućim migracijama. Treba sačuvati njezin povijesni model; to je konkretan zaseban tehnički zadatak, bez promjene poslovnih pravila. Detalji i granice provjera su u [izvještaju](AI_DISCOVERY_REPORT.md).
 
@@ -19,7 +19,6 @@ Markdown nije jamstvo poslušnosti, test prolaza ili sigurnosti. Njegova vrijedn
 | Datoteka | Kada je koristiš |
 | --- | --- |
 | `AGENTS.md` | Početak svakog zadatka; pravila i usmjeravanje |
-| `.github/copilot-instructions.md` | Kratki Copilot ulaz koji upućuje na ista pravila |
 | `docs/PRODUCT.md` | Svrha, korisnici i granice proizvoda |
 | `docs/CODEBASE_MAP.md` | Gdje je konkretan endpoint, servis, model ili test |
 | `docs/EUDR_DOMAIN.md` | Pojmovi, stvarni statusi, evidence/reviewer granica i budući Producer/Plot |
@@ -37,15 +36,14 @@ Markdown nije jamstvo poslušnosti, test prolaza ili sigurnosti. Njegova vrijedn
 
 Tehnička dokumentacija je na engleskom radi dosljednog konteksta za agente; ovaj vodič je na hrvatskom. Ne treba svaki zadatak uključiti vodič.
 
-## Uključi i provjeri Copilot kontekst
+## Postavi Codex u VS Codeu
 
-U stvarni repo prenesi nove datoteke i izmjene README/verify.ps1, pa pregledaj diff i commitaj ih. Ako tvoj lokalni repo ima novije promjene, nemoj preko njega slijepo prekopirati cijeli stari ZIP. Manifest izmjena nalazi se u discovery izvještaju; aplikacijski kod ovdje nije mijenjan.
+1. U VS Codeu instaliraj službenu [Codex ekstenziju za VS Code](https://marketplace.visualstudio.com/items?itemName=OpenAI.chatgpt) izdavača OpenAI.
+2. Otvori korijenski direktorij Provena repozitorija, otvori Codex bočnu traku i prijavi se svojim ChatGPT računom. Ako ikona nije vidljiva, u Command Paletteu pokreni `Codex: Open Codex Sidebar`.
+3. Na početku zadatka uputi Codex na `AGENTS.md`. To je glavni projektni router; ne stvaraj paralelnu kopiju pravila. Codex podržava `AGENTS.md` kao upute repozitorija. Otvori odgovarajući `.agents/skills/<naziv>/SKILL.md` kada router ili opseg zadatka to traži.
+4. Provjeri kontekst kratkim zadatkom: „Pročitaj AGENTS.md. Za promjenu validacije CN koda navedi koje relevantne dokumente, skillove, datoteke i testove trebaš otvoriti. Ne mijenjaj kod.” Očekuj API, validator i relevantne testove te domenu samo ako je potrebna. Potom pregledaj diff i potvrdi da se Codex drži opsega.
 
-GitHub dokumentira `.github/copilot-instructions.md` i agentne upute; dostupnost ovisi o Copilot površini i postavkama. Dodani mali ulaz izričito traži čitanje AGENTS.md. GitHub navodi `.agents/skills` kao podržanu lokaciju projektnih skillova. Ako tvoj klijent ne učita skill automatski, zatraži da otvori točnu putanju ručno. Nemoj održavati drugu kopiju istih pravila.
-
-Provjeri setup kratkim zadatkom: „Pročitaj AGENTS.md. Za promjenu validacije CN koda navedi koje relevantne dokumente i datoteke trebaš otvoriti. Ne mijenjaj kod.” Očekuj API, validator, relevantne testove i po potrebi domenu, a ne čitanje svih dokumenata. Pregledaj dostupne reference/upute u svojem klijentu; sama agentova tvrdnja nije dokaz da će ih dosljedno slijediti.
-
-Izvori provjereni 2026-10-11: [GitHub repository instructions](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/add-custom-instructions/add-repository-instructions), [GitHub agent skills](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills). Ovaj paket ne mijenja tvoje IDE postavke niti instalira ekstenzije.
+OpenAI upute za [Codex IDE ekstenziju](https://developers.openai.com/codex/ide) opisuju instalaciju, prijavu i početak razgovora u IDE-u. Službene [upute za AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md) opisuju projektne upute, a [OpenAI Codex ekstenzija na Marketplaceu](https://marketplace.visualstudio.com/items?itemName=OpenAI.chatgpt) vodi na aktualnu stranicu ekstenzije. Provjereno 2026-10-12. Setup ovdje opisuje klijent, ali ne mijenja tvoje VS Code postavke niti instalira ekstenziju.
 
 ## Skills, ADR i plan nisu ista stvar
 
@@ -133,7 +131,7 @@ Nemoj napisati „napravi da bude EUDR compliant” i očekivati da agent sam od
 2. Otvori branch za jedan cilj, npr. `docs/ai-foundation` ili `feat/product-active-filter`.
 3. Zadaj opseg, kriterije i granice. Za veće promjene prvo dogovori plan; za male pusti agenta da završi.
 4. Pregledaj diff prije commita: neočekivane datoteke, pakete, masovno formatiranje, tajne, migracije i promjene testova.
-5. Pokreni provjeru. `pwsh -File scripts/verify.ps1` radi restore, Release build i unit/integration testove; Docker je potreban za integracijske. Blokirano nije zeleno.
+5. Bez Dockera možeš pokrenuti restore, Release build i unit testove; to je lokalna provjera, ne puna provjera. `pwsh -File scripts/verify.ps1` radi restore, Release build i unit/integration testove; Docker je potreban za integracijske. Preskočeno ili blokirano nije prošlo.
 6. PR neka objasni problem, promjenu, rezultate provjera i preostale rizike. Ti pregledaj poslovno pravilo i sigurnosne granice prije mergea. Nije dodan CI workflow niti branch protection; to treba posebno postaviti.
 
 Prije prihvaćanja AI promjene pitaj: mijenja li više nego što sam tražio; štiti li organizaciju i public token; čuva li review nakon promjene evidencea na dogovoreni način; ima li smislen negativni test; što radi s postojećim podacima; je li test stvarno pokrenut; jesu li promijenjeni ugovor i dokumentacija usklađeni?
@@ -154,4 +152,4 @@ Ne traži promjene dokumentacije za svako preimenovanje lokalne varijable. Kad p
 - Popravljanje greške uklanjanjem testa, warning-as-error ili sigurnosne provjere.
 - Traženje velikog featurea preko nestabilnog builda. Prvo potvrdi bazni build i testove.
 
-Tvoj prvi sljedeći korak je lokalna provjera kroz verify.ps1. Ako nešto padne, daj Copilotu točan izlaz i uski zadatak da utvrdi uzrok. Prije schema featurea riješi povezanost početne migracije i snapshota. Za ostali razvoj koristi male, jasno zadane promjene s ograničenim discoveryjem.
+Prvi korak može biti lokalna provjera bez Dockera kako je navedeno u TESTING.md; prije mergea pokreni punu provjeru s integracijskim testovima. Ako nešto padne, podijeli točan izlaz s Codexom i zatraži usku analizu uzroka. Prije schema featurea riješi povezanost početne migracije i snapshota. Za ostali razvoj koristi jasno zadane promjene s ograničenim discoveryjem.

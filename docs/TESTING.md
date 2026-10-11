@@ -1,12 +1,22 @@
 # Verification and test strategy
 
-## Baseline and prerequisites
+## Prerequisites
 
-The second archive includes AppDbContext/mappings/migrations. The prior missing-source finding is resolved. The discovery environment has no `dotnet`, `pwsh` or `docker` executable on PATH. No passing build/test result is claimed. See [AI_DISCOVERY_REPORT](AI_DISCOVERY_REPORT.md) for command outcomes.
+Use .NET SDK 10 allowed by `global.json` (10.0.100, latestFeature roll-forward) and package-feed access/cache. Restore, Release build and unit tests do not require Docker. The full gate also requires a running Docker daemon able to start postgres:17. PowerShell is needed only for `verify.ps1`. Integration tests use their own disposable Testcontainer and temporary storage, not docker-compose's database. No local production credentials should be necessary for those tests.
 
-Use an SDK allowed by `global.json` (10.0.100, latestFeature roll-forward), package-feed access/cache, and a running Docker daemon able to start postgres:17. PowerShell is needed only for verify.ps1. Integration tests use their own disposable Testcontainer and temporary storage, not docker-compose's database. No local production credentials should be necessary for those tests.
+## Local verification without Docker
 
-## Commands from repository root
+From the repository root, run these commands in order:
+
+```sh
+dotnet restore Provena.sln
+dotnet build Provena.sln --no-restore --configuration Release
+dotnet test tests/Provena.Api.UnitTests/Provena.Api.UnitTests.csproj --no-build --configuration Release
+```
+
+This checks package restore, compilation with warnings-as-errors, and the unit test project. It does not run integration tests and is not the full verification gate. The unit test command uses the Release assembly produced by the preceding build.
+
+## Full verification and focused commands
 
 ```sh
 dotnet restore Provena.sln
@@ -15,7 +25,7 @@ dotnet test tests/Provena.Api.UnitTests/Provena.Api.UnitTests.csproj --no-build 
 dotnet test tests/Provena.Api.IntegrationTests/Provena.Api.IntegrationTests.csproj --no-build --configuration Release
 ```
 
-The normal full gate is `pwsh -File scripts/verify.ps1` or `bash scripts/verify.sh`. PowerShell checks for the SDK command, fails immediately on native-command errors, and restores its working directory even on failure. No skip-success path is provided. Docker is exercised by the integration fixture; failure there is not automatically a Docker problem—read the test output. No format/lint command is configured; warnings are errors during build.
+The full gate requires Docker. The normal full gate is `pwsh -File scripts/verify.ps1` or `bash scripts/verify.sh`; it performs restore, Release build, unit tests and integration tests. PowerShell checks for the SDK command, fails immediately on native-command errors, and restores its working directory even on failure. No skip-success path is provided. Docker is exercised by the integration fixture; failure there is not automatically a Docker problem—read the test output. No format/lint command is configured; warnings are errors during build.
 
 For a focused feedback loop after a successful Release build, use `dotnet test tests/Provena.Api.UnitTests/Provena.Api.UnitTests.csproj --no-build --configuration Release --filter FullyQualifiedName~Status_rules_follow_documented_priority`. Do not report a filtered run as the full gate. No-build uses the last compiled assembly, so rebuild after code changes.
 
