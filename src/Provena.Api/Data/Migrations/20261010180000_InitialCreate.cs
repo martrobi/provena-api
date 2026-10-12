@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Provena.Api.Data.Migrations;
 [DbContext(typeof(AppDbContext))]
 [Migration("20261010180000_InitialCreate")]
-public sealed class InitialCreate : Migration
+public sealed partial class InitialCreate : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder) => migrationBuilder.Sql("""
 CREATE TABLE "AspNetUsers" (
@@ -323,5 +323,4 @@ DROP TABLE "AspNetRoleClaims" CASCADE;
 DROP TABLE "AspNetRoles" CASCADE;
 DROP TABLE "AspNetUsers" CASCADE;
 """);
-    protected override void BuildTargetModel(ModelBuilder modelBuilder) => AppDbContextModelSnapshot.BuildInitialModel(modelBuilder);
 }

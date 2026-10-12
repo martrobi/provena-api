@@ -71,7 +71,7 @@ It registers only two tenants because the auth limiter is shared across the fixt
 | Pure rule / validator | Focused unit boundary and invalid-input cases; status precedence and terminal preservation where relevant |
 | Endpoint / DTO / enum / status code | HTTP request/response assertions; validation and compatibility; relevant smoke contract; update the expected surface in `EndpointInventoryTests` for added/removed/re-protected routes |
 | Tenant query / relation / download | Real PostgreSQL HTTP tests for organization A vs B, wrong-case resource and unauthenticated callers |
-| EF schema | Clean migration, snapshot check, prior-schema upgrade with data, constraints and tenant-consistent relationships; preserve the initial migration target model when regenerating the snapshot |
+| EF schema | Clean migration, snapshot check, prior-schema upgrade with data, constraints and tenant-consistent relationships; `MigrationTests` covers clean creation and upgrade from the initial schema, so extend its upgrade test with rows for the table a new migration changes |
 | Persistence guard | Empty/foreign tenant, attempted tenant reassignment, audit update/delete, timestamp scope and alternative write APIs |
 | Supplier token / concurrency | Lifecycle negatives plus concurrent revoke/rotate waiting on case lock; validate no stale token succeeds |
 | Evidence mutation / review | Accepted → changed evidence → Submitted; NotRequired behaviour; completion and terminal cases |
@@ -79,7 +79,7 @@ It registers only two tenants because the auth limiter is shared across the fixt
 | Storage / export | Invalid files, cleanup failures, replaced geo, malicious filenames/CSV values, status-specific export contract |
 | Documentation-only | Existing-path and link checks, claims against source, no accidental code diff |
 
-Known missing coverage includes import header/size/row-limit and cross-tenant reference cases (only happy paths, partial failure and wrong file type are covered), Kestrel request-size enforcement (metadata only), archive/catalog-delete/edit restrictions, broad cross-tenant write/file/product paths, waiver permissions, rate limits/lockout, concurrent requests, storage failures, migration upgrades and exact export-manifest/error contracts. There are also no focused tests for all SaveChanges guard boundaries or the initial-migration/snapshot coupling. The two broad workflows are useful, not a complete regression suite. Do not add trivial tests that merely mirror documentation; add tests resolving the changed behaviour or risk.
+Known missing coverage includes import header/size/row-limit and cross-tenant reference cases (only happy paths, partial failure and wrong file type are covered), Kestrel request-size enforcement (metadata only), archive/catalog-delete/edit restrictions, broad cross-tenant write/file/product paths, waiver permissions, rate limits/lockout, concurrent requests, storage failures, data-bearing upgrades beyond the initial schema and exact export-manifest/error contracts. There are also no focused tests for all SaveChanges guard boundaries. The two broad workflows are useful, not a complete regression suite. Do not add trivial tests that merely mirror documentation; add tests resolving the changed behaviour or risk.
 
 ## Reporting
 

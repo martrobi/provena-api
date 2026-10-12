@@ -6,7 +6,7 @@ Repozitorij sadrži AppDbContext, EF model, design-time factory, početnu migrac
 
 U kodu postoje tenant filtri, provjere organizacije pri spremanju i složeni strani ključevi. To nije isto što i izvršeni test. Za lokalnu povratnu informaciju bez Dockera pokreni restore, Release build i unit testove kako je opisano u [TESTING.md](TESTING.md). Puna provjera `pwsh -File scripts/verify.ps1` uključuje i integracijske testove koji zahtijevaju Docker.
 
-Prije prve nove migracije pročitaj DATABASE.md: početna migracija koristi metodu iz datoteke snapshota koju EF mijenja pri budućim migracijama. Treba sačuvati njezin povijesni model; to je konkretan zaseban tehnički zadatak, bez promjene poslovnih pravila. Detalji i granice provjera su u [izvještaju](AI_DISCOVERY_REPORT.md).
+Prije prve nove migracije pročitaj DATABASE.md: povijesni ciljni model početne migracije zamrznut je u `InitialCreate.TargetModel.cs`, odvojeno od snapshota koji EF mijenja pri budućim migracijama. Ne mijenjaj tu datoteku. Povijesni nalaz je u [izvještaju](AI_DISCOVERY_REPORT.md).
 
 ## Kako ovaj sustav štedi kontekst
 

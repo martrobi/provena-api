@@ -130,7 +130,7 @@ An explicit user request may intentionally replace an existing project rule. In 
 
 For current behaviour, source code and executable tests are primary evidence; an unrun test is an expectation, not proof. Explicit owner-approved domain/security decisions govern intended changes. Documentation describes these; plans describe proposed changes and never silently override current behaviour. A task can explicitly request a change, but conflicts with an approved rule must be surfaced. Label observations, project rules, recommendations and unknowns separately. Do not normalize a security defect into a rule.
 
-Persistence lives in `src/Provena.Api/Data/AppDbContext.cs` and `Data/Migrations/`. Read [DATABASE.md](docs/DATABASE.md) for tenant filters/write guards, constraints and the initial migration/snapshot coupling before schema work. Source review is not a passing runtime test.
+Persistence lives in `src/Provena.Api/Data/AppDbContext.cs` and `Data/Migrations/`. Read [DATABASE.md](docs/DATABASE.md) for tenant filters/write guards, constraints and the frozen InitialCreate target model (`InitialCreate.TargetModel.cs`; never edit it) before schema work. Source review is not a passing runtime test.
 
 ## Task routing
 

@@ -22,7 +22,7 @@ All paths below are repository-relative. One application project; two test proje
 | Entities / enums (all namespace `Provena.Api.Domain`) | `src/Provena.Api/Domain/{Organizations,Suppliers,Products,Shipments,EudrCases,SupplierRequests,Files,Audit}/` |
 | EF/Identity model, tenant filters and tracked-write guards | `src/Provena.Api/Data/AppDbContext.cs` (mapping is inline in OnModelCreating) |
 | EF design-time connection configuration | `src/Provena.Api/Data/DesignTimeFactory.cs` |
-| Initial SQL migration and model snapshot | `src/Provena.Api/Data/Migrations/20261010180000_InitialCreate.cs`, `AppDbContextModelSnapshot.cs`; read [DATABASE](DATABASE.md) before adding migrations |
+| Initial SQL migration and model snapshot | `src/Provena.Api/Data/Migrations/20261010180000_InitialCreate.cs`, `InitialCreate.TargetModel.cs` (frozen original target model), `AppDbContextModelSnapshot.cs`; read [DATABASE](DATABASE.md) before adding migrations |
 | File I/O / email adapter | `src/Provena.Api/Infrastructure/FileStorage.cs`, `EmailSender.cs` |
 | Error mapping / app exceptions | `src/Provena.Api/Common/ExceptionHandler.cs`, `ApiException.cs` |
 | Shared list paging (`ToPageAsync`, defaults/limits) | `src/Provena.Api/Common/Paging.cs`, `PageResult<T>` in `Contracts/Requests.cs` |

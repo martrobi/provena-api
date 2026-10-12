@@ -1,12 +1,11 @@
-// Immutable mapping for the initial schema. Future migrations must be generated with dotnet ef.
+// Current model snapshot. EF rewrites this file for each new migration; InitialCreate's target model is frozen in InitialCreate.TargetModel.cs.
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 namespace Provena.Api.Data.Migrations;
 [DbContext(typeof(AppDbContext))]
 public sealed class AppDbContextModelSnapshot : ModelSnapshot
 {
-    protected override void BuildModel(ModelBuilder modelBuilder) => BuildInitialModel(modelBuilder);
-    internal static void BuildInitialModel(ModelBuilder modelBuilder)
+    protected override void BuildModel(ModelBuilder modelBuilder)
     {
         modelBuilder.HasAnnotation("ProductVersion", "10.0.12").HasAnnotation("Relational:MaxIdentifierLength", 63);
         NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
