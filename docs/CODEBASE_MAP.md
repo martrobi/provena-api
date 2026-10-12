@@ -25,6 +25,7 @@ All paths below are repository-relative. One application project; two test proje
 | Initial SQL migration and model snapshot | `src/Provena.Api/Data/Migrations/20261010180000_InitialCreate.cs`, `AppDbContextModelSnapshot.cs`; read [DATABASE](DATABASE.md) before adding migrations |
 | File I/O / email adapter | `src/Provena.Api/Infrastructure/FileStorage.cs`, `EmailSender.cs` |
 | Error mapping / app exceptions | `src/Provena.Api/Common/ExceptionHandler.cs`, `ApiException.cs` |
+| Shared list paging (`ToPageAsync`, defaults/limits) | `src/Provena.Api/Common/Paging.cs`, `PageResult<T>` in `Contracts/Requests.cs` |
 | Audit / demo data | `src/Provena.Api/Services/AuditService.cs`, `DevelopmentSeeder.cs` |
 | Pure rules tests | `tests/Provena.Api.UnitTests/DomainTests.cs` |
 | Real PostgreSQL HTTP tests | `tests/Provena.Api.IntegrationTests/ApiFactory.cs`, `WorkflowTests.cs`, `HttpContractTests.cs` |

@@ -59,6 +59,48 @@ If the implementation makes an existing instruction, architecture rule, conventi
 
 Do not update unrelated documentation or agent instructions merely for completeness. Changes must be caused by the requested task.
 
+## Frontend handoffs
+
+The frontend is maintained in a separate repository and is not automatically
+available to backend agents.
+
+When a backend change modifies an externally observable contract or behaviour
+that a separate frontend must adapt to, create or update a focused frontend
+handoff document under `docs/frontend-handoffs/`.
+
+Typical triggers include:
+
+- endpoint additions or removals,
+- request or response shape changes,
+- status code or ProblemDetails changes,
+- validation rules,
+- enum/value-set changes,
+- pagination, filtering, search or ordering behaviour,
+- authentication or authorization behaviour,
+- upload/download contracts,
+- workflow or state-transition changes,
+- public supplier portal behaviour.
+
+A frontend handoff must:
+
+- describe the externally observable behaviour after the change,
+- identify changed endpoints and request/response contracts,
+- include representative examples where useful,
+- clearly mark breaking changes,
+- describe required client adaptations at the contract level,
+- list relevant compatibility risks and intentional out-of-scope items,
+- report the backend verification performed.
+
+Do not prescribe frontend repository file names, component names or implementation
+details unless they are part of an explicitly agreed cross-repository contract.
+
+Backend code, executable tests and canonical API documentation remain the source
+of truth. Frontend handoff documents are implementation handoffs, not a second
+API specification.
+
+Do not create a frontend handoff for purely internal changes with no externally
+observable client impact.
+
 ## Persistent decisions
 
 When a user request establishes or changes a durable project convention, architecture rule, API convention, persistence convention, security rule, domain rule, or development workflow:
@@ -116,6 +158,7 @@ Use [discovery findings](docs/AI_DISCOVERY_REPORT.md) only for baseline issues o
   - Internal routes belong under the authorized `/api` group.
   - Upload groups use `WithUploadLimits()` plus the documented antiforgery opt-out.
   - Update `EndpointInventoryTests` whenever the route surface changes.
+  - Tenant-wide list endpoints that can grow without bound return `PageResult<T>` through `Common/Paging.cs` (`page` default 1, `pageSize` default 25, max 100, ordering ending in a unique tiebreak) ([ADR 0004](docs/adr/0004-paginated-collection-endpoints.md)). Do not paginate small nested collections or lookup-style results without a concrete reason.
 - Keep validation server-side, preserve cancellation, transactions, per-case locks and post-lock token rechecks. Queries returning tenant data must be tenant-scoped; verify enforcement, including writes and foreign references. Never trust client `OrganizationId`.
 - Keep internal routes authenticated; the public capability grants access to one request/case only. No new `IgnoreQueryFilters` use without explicit security review. Never expose token hashes, storage keys, internal notes or audit payloads through public DTOs.
 - Never log passwords, bearer tokens, public URLs, raw evidence or connection secrets. Do not commit secrets or uploaded data. Frontend checks do not authorize backend operations.

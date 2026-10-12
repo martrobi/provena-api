@@ -131,6 +131,74 @@ public sealed class HttpContractTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.MethodNotAllowed, (await a.PatchAsync("/api/suppliers", RawJson("{}"))).StatusCode);
     }
 
+    private static async Task<(List<JsonElement> Items, JsonElement Root)> Page(HttpClient client, string url)
+    { var root = await Json(await client.GetAsync(url)); return (root.GetProperty("items").EnumerateArray().ToList(), root); }
+    private static List<Guid> Ids(IEnumerable<JsonElement> items) => items.Select(x => x.GetProperty("id").GetGuid()).ToList();
+    private static async Task<(Guid Supplier, Guid Product, Guid Shipment)> NewShipment(HttpClient client, string tag)
+    {
+        var s = await Json(await client.PostAsJsonAsync("/api/suppliers", new { name = "Supplier " + tag }));
+        var p = await Json(await client.PostAsJsonAsync("/api/products", new { name = "Product " + tag, cnCode = "0901", commodityType = "Coffee" }));
+        var shipment = await Json(await client.PostAsJsonAsync("/api/shipments", new { referenceNumber = "REF-" + tag, supplierId = s.GetProperty("id").GetGuid(), productId = p.GetProperty("id").GetGuid(), quantity = 10, unit = "Kg" }));
+        return (s.GetProperty("id").GetGuid(), p.GetProperty("id").GetGuid(), shipment.GetProperty("shipment").GetProperty("id").GetGuid());
+    }
+
+    // Shared paging semantics (validation, overflow, out-of-range pages, Name+Id tiebreak) are pinned once here; products and shipments only prove their own wiring and order.
+    [Fact]
+    public async Task Supplier_list_is_paginated_with_stable_order_and_validated_paging()
+    {
+        var (a, _) = await Tenants(); var tag = Guid.NewGuid().ToString("N");
+        for (var i = 0; i < 5; i++) await Json(await a.PostAsJsonAsync("/api/suppliers", new { name = "Dup " + tag }));
+        var first = await Page(a, $"/api/suppliers?search={tag}&pageSize=2");
+        Assert.Equal(1, first.Root.GetProperty("page").GetInt32()); Assert.Equal(2, first.Root.GetProperty("pageSize").GetInt32()); Assert.Equal(5, first.Root.GetProperty("totalCount").GetInt32());
+        var second = await Page(a, $"/api/suppliers?search={tag}&page=2&pageSize=2"); var third = await Page(a, $"/api/suppliers?search={tag}&page=3&pageSize=2");
+        Assert.Equal([2, 2, 1], [first.Items.Count, second.Items.Count, third.Items.Count]);
+        var all = Ids((await Page(a, $"/api/suppliers?search={tag}&pageSize=100")).Items);
+        Assert.Equal(5, all.Distinct().Count()); Assert.Equal(all, Ids(first.Items).Concat(Ids(second.Items)).Concat(Ids(third.Items)).ToList());
+        var defaults = (await Page(a, $"/api/suppliers?search={tag}")).Root;
+        Assert.Equal(1, defaults.GetProperty("page").GetInt32()); Assert.Equal(25, defaults.GetProperty("pageSize").GetInt32());
+        var beyond = (await Page(a, $"/api/suppliers?search={tag}&page=4&pageSize=2")).Root;
+        Assert.Empty(beyond.GetProperty("items").EnumerateArray()); Assert.Equal(5, beyond.GetProperty("totalCount").GetInt32());
+        foreach (var query in new[] { "page=0", "pageSize=0", "pageSize=101", "page=abc", "pageSize=abc", "page=2147483647&pageSize=100" })
+            await Problem(await a.GetAsync($"/api/suppliers?{query}"), HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Product_list_is_paginated_by_name_then_id_and_search_still_matches_cn_code()
+    {
+        var (a, _) = await Tenants(); var tag = Guid.NewGuid().ToString("N");
+        for (var i = 0; i < 3; i++) await Json(await a.PostAsJsonAsync("/api/products", new { name = "Dup " + tag, cnCode = "0901", commodityType = "Coffee" }));
+        var unique = await Json(await a.PostAsJsonAsync("/api/products", new { name = "Cn lookup " + tag, cnCode = "8765432109", commodityType = "Coffee" }));
+        var first = await Page(a, $"/api/products?search=Dup {tag}&pageSize=2"); var second = await Page(a, $"/api/products?search=Dup {tag}&page=2&pageSize=2");
+        Assert.Equal(3, first.Root.GetProperty("totalCount").GetInt32()); Assert.Equal([2, 1], [first.Items.Count, second.Items.Count]);
+        Assert.Equal(Ids((await Page(a, $"/api/products?search=Dup {tag}&pageSize=100")).Items), Ids(first.Items).Concat(Ids(second.Items)).ToList());
+        Assert.Contains(unique.GetProperty("id").GetGuid(), Ids((await Page(a, "/api/products?search=8765432109")).Items));
+        await Problem(await a.GetAsync("/api/products?pageSize=101"), HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Shipment_list_is_paginated_newest_first_with_stable_order()
+    {
+        var (a, _) = await Tenants(); var created = new List<Guid>();
+        for (var i = 0; i < 3; i++) created.Add((await NewShipment(a, Guid.NewGuid().ToString("N")[..8])).Shipment);
+        var all = await Page(a, "/api/shipments?pageSize=100"); var allIds = Ids(all.Items);
+        Assert.Equal(1, all.Root.GetProperty("page").GetInt32()); Assert.Equal(100, all.Root.GetProperty("pageSize").GetInt32()); Assert.True(all.Root.GetProperty("totalCount").GetInt32() >= 3);
+        var positions = Enumerable.Reverse(created).Select(id => allIds.IndexOf(id)).ToList(); Assert.DoesNotContain(-1, positions); Assert.Equal(positions.Order(), positions);
+        var first = await Page(a, "/api/shipments?pageSize=2"); var second = await Page(a, "/api/shipments?page=2&pageSize=2");
+        Assert.Equal(allIds.Take(4), Ids(first.Items).Concat(Ids(second.Items)));
+        Assert.Equal(25, (await Page(a, "/api/shipments")).Root.GetProperty("pageSize").GetInt32());
+        await Problem(await a.GetAsync("/api/shipments?pageSize=101"), HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Paginated_catalog_and_shipment_lists_do_not_include_other_tenants_rows()
+    {
+        var (a, b) = await Tenants(); var tag = Guid.NewGuid().ToString("N")[..12]; var ids = await NewShipment(a, tag);
+        Assert.Equal(1, (await Page(a, $"/api/suppliers?search={tag}")).Root.GetProperty("totalCount").GetInt32());
+        Assert.Equal(0, (await Page(b, $"/api/suppliers?search={tag}")).Root.GetProperty("totalCount").GetInt32());
+        Assert.Equal(0, (await Page(b, $"/api/products?search={tag}")).Root.GetProperty("totalCount").GetInt32());
+        Assert.DoesNotContain(ids.Shipment, Ids((await Page(b, "/api/shipments?pageSize=100")).Items));
+    }
+
     [Fact]
     public async Task Error_responses_use_problem_details_without_instance()
     {

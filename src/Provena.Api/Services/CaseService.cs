@@ -31,20 +31,16 @@ public sealed class CaseService(AppDbContext db, TenantContext tenant, EudrCaseS
     }
     public async Task<PageResult<CaseListItem>> List(EudrCaseStatus? status, Guid? supplierId, Guid? productId, string? search, int page, int pageSize, CancellationToken ct)
     {
-        if (page < 1 || pageSize is < 1 or > 100 || search?.Length > 200 || (status.HasValue && !Enum.IsDefined(status.Value))) throw new ApiException(400, "Invalid filters or pagination. page >= 1 and pageSize 1-100 are required.");
+        if (!Paging.IsValid(page, pageSize) || search?.Length > 200 || (status.HasValue && !Enum.IsDefined(status.Value))) throw new ApiException(400, "Invalid filters or pagination. page >= 1 and pageSize 1-100 are required.");
         var query = from c in db.Cases.AsNoTracking() join s in db.Shipments on c.ShipmentId equals s.Id
                     join supplier in db.Suppliers on s.SupplierId equals supplier.Id join product in db.Products on s.ProductId equals product.Id
                     where (!status.HasValue || c.Status == status) && (!supplierId.HasValue || s.SupplierId == supplierId) && (!productId.HasValue || s.ProductId == productId)
                     select new { c, s, supplier, product };
         if (!string.IsNullOrWhiteSpace(search)) { var term = search.ToLower(); query = query.Where(x => x.s.ReferenceNumber.ToLower().Contains(term) || x.supplier.Name.ToLower().Contains(term) || x.product.Name.ToLower().Contains(term)); }
-        var count = await query.CountAsync(ct);
-        var skip = (long)(page - 1) * pageSize;
-        if (skip > int.MaxValue) throw new ApiException(400, "Page is out of range.");
-        var items = await query.OrderByDescending(x => x.c.UpdatedAtUtc).ThenBy(x => x.c.Id).Skip((int)skip).Take(pageSize)
-            .Select(x => new CaseListItem(x.c.Id, x.s.ReferenceNumber, x.supplier.Name, x.product.Name, x.c.Status,
+        return await query.OrderByDescending(x => x.c.UpdatedAtUtc).ThenBy(x => x.c.Id)
+            .ToPageAsync(x => new CaseListItem(x.c.Id, x.s.ReferenceNumber, x.supplier.Name, x.product.Name, x.c.Status,
                 db.Requirements.Count(r => r.EudrCaseId == x.c.Id && r.IsRequired && (r.Status == RequirementStatus.Missing || r.Status == RequirementStatus.Rejected)),
-                db.Requirements.Count(r => r.EudrCaseId == x.c.Id && r.Status == RequirementStatus.Submitted), x.c.UpdatedAtUtc)).ToListAsync(ct);
-        return new(items, page, pageSize, count);
+                db.Requirements.Count(r => r.EudrCaseId == x.c.Id && r.Status == RequirementStatus.Submitted), x.c.UpdatedAtUtc), page, pageSize, ct);
     }
     public async Task Review(Guid caseId, Guid requirementId, ReviewInput input, CancellationToken ct)
     {

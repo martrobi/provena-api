@@ -15,7 +15,7 @@ internal static class ShipmentEndpoints
         // Archival is deliberately used even before the first request, preserving append-only audit history.
         group.MapDelete("/{id:guid}", Archive);
     }
-    private static async Task<Ok<List<Shipment>>> List(ShipmentService service, CancellationToken ct) => TypedResults.Ok(await service.List(ct));
+    private static async Task<Ok<PageResult<Shipment>>> List(ShipmentService service, CancellationToken ct, int page = 1, int pageSize = 25) => TypedResults.Ok(await service.List(page, pageSize, ct));
     private static async Task<Ok<object>> Get(Guid id, ShipmentService service, CancellationToken ct) => TypedResults.Ok(await service.Get(id, ct));
     // 201 without Location: the body carries both the shipment and its EUDR case ID.
     private static async Task<Created<object>> Create(ShipmentInput input, ShipmentService service, CancellationToken ct) => TypedResults.Created((string?)null, await service.Save(null, input, ct));

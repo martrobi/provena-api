@@ -8,19 +8,19 @@ using Provena.Api.Domain;
 namespace Provena.Api.Services;
 public sealed class CatalogService(AppDbContext db, TenantContext tenant, IValidator<SupplierInput> suppliers, IValidator<ProductInput> products, AuditService audit)
 {
-    public Task<List<Supplier>> Suppliers(string? search, CancellationToken ct)
+    public Task<PageResult<Supplier>> Suppliers(string? search, int page, int pageSize, CancellationToken ct)
     {
         if (search?.Length > 200) throw new ApiException(400, "Search is limited to 200 characters.");
         var query = db.Suppliers.AsNoTracking();
         if (!string.IsNullOrWhiteSpace(search)) { var term = search.ToLowerInvariant(); query = query.Where(x => x.Name.ToLower().Contains(term)); }
-        return query.OrderBy(x => x.Name).ToListAsync(ct);
+        return query.OrderBy(x => x.Name).ThenBy(x => x.Id).ToPageAsync(page, pageSize, ct);
     }
-    public Task<List<Product>> Products(string? search, CancellationToken ct)
+    public Task<PageResult<Product>> Products(string? search, int page, int pageSize, CancellationToken ct)
     {
         if (search?.Length > 200) throw new ApiException(400, "Search is limited to 200 characters.");
         var query = db.Products.AsNoTracking();
         if (!string.IsNullOrWhiteSpace(search)) { var term = search.ToLowerInvariant(); query = query.Where(x => x.Name.ToLower().Contains(term) || x.CnCode.Contains(term)); }
-        return query.OrderBy(x => x.Name).ToListAsync(ct);
+        return query.OrderBy(x => x.Name).ThenBy(x => x.Id).ToPageAsync(page, pageSize, ct);
     }
     public async Task<Supplier> Supplier(Guid id, CancellationToken ct) => await db.Suppliers.SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw ApiException.NotFound();
     public async Task<Product> Product(Guid id, CancellationToken ct) => await db.Products.SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw ApiException.NotFound();

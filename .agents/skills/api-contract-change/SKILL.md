@@ -15,8 +15,12 @@ Paths below are relative to the repository root. Load this procedure only for a 
    - Keep handlers thin and return `TypedResults`.
    - Register new modules in `MapProvenaEndpoints()`.
    - Update the expected surface in `EndpointInventoryTests`.
+   - New or changed tenant-wide list endpoints follow the pagination convention in `docs/API.md` (`Common/Paging.cs`, `PageResult<T>`, deterministic order with an `Id` tiebreak); changing a response to or from a page object is a breaking contract change.
    - Remember that query/form enum binding needs `EndpointConventions.ParseEnum` to stay case-insensitive.
 5. Add meaningful HTTP tests for changed success and failure responses and relevant tenant denial. Test actual serialization, not only DTO constructors.
-6. Update the owning API section and affected consumers/tests; run `verify-change`. Report client compatibility not tested separately from server tests.
+6. Update the owning API section and affected consumers/tests.
+   - If the change has frontend impact, create or update the required `docs/frontend-handoffs/` document according to `AGENTS.md`.
+   - Run `verify-change`.
+   - Report client compatibility not tested separately from server tests.
 
 Output: contract delta, compatibility decision, files/tests and remaining gaps.

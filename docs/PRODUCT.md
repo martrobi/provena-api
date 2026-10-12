@@ -6,7 +6,7 @@ Provena supports an organization's operational evidence workflow around a shipme
 
 Public suppliers use possession of a secret link rather than a user account. They submit production information, supporting files and polygon geolocation, and mark the submission complete. The internal user remains the reviewer. `Owner` and `Member` exist as membership roles, but review endpoints currently require authentication only, without distinct reviewer permissions.
 
-Other implemented source paths include supplier/product/shipment CSV imports, a case list with filters and pagination, dashboard counts, request revocation/rotation and shipment archival. Persistence source is included in this revision; these remain source observations, not a verified runtime result.
+Other implemented source paths include supplier/product/shipment CSV imports, paginated case, supplier, product and shipment lists (the case list also filters), dashboard counts, request revocation/rotation and shipment archival. Persistence source is included in this revision; these remain source observations, not a verified runtime result.
 
 ## Explicit direction and boundaries
 

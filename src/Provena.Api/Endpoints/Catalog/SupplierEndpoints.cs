@@ -15,7 +15,7 @@ internal static class SupplierEndpoints
         group.MapPut("/{id:guid}", Update);
         group.MapDelete("/{id:guid}", Delete);
     }
-    private static async Task<Ok<List<Supplier>>> List(string? search, CatalogService service, CancellationToken ct) => TypedResults.Ok(await service.Suppliers(search, ct));
+    private static async Task<Ok<PageResult<Supplier>>> List(string? search, CatalogService service, CancellationToken ct, int page = 1, int pageSize = 25) => TypedResults.Ok(await service.Suppliers(search, page, pageSize, ct));
     private static async Task<Ok<Supplier>> Get(Guid id, CatalogService service, CancellationToken ct) => TypedResults.Ok(await service.Supplier(id, ct));
     private static async Task<CreatedAtRoute<Supplier>> Create(SupplierInput input, CatalogService service, CancellationToken ct)
     { var value = await service.SaveSupplier(null, input, ct); return TypedResults.CreatedAtRoute(value, GetRoute, new { id = value.Id }); }

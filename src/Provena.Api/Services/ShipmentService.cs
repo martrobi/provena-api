@@ -14,7 +14,7 @@ public sealed class ShipmentService(AppDbContext db, TenantContext tenant, IVali
         var caseId = await db.Cases.Where(x => x.ShipmentId == id).Select(x => x.Id).SingleAsync(ct);
         return new { shipment, eudrCaseId = caseId };
     }
-    public Task<List<Shipment>> List(CancellationToken ct) => db.Shipments.AsNoTracking().OrderByDescending(x => x.CreatedAtUtc).ToListAsync(ct);
+    public Task<PageResult<Shipment>> List(int page, int pageSize, CancellationToken ct) => db.Shipments.AsNoTracking().OrderByDescending(x => x.CreatedAtUtc).ThenBy(x => x.Id).ToPageAsync(page, pageSize, ct);
     public async Task<object> Save(Guid? id, ShipmentInput input, CancellationToken ct)
     {
         await validator.ValidateAndThrowAsync(input, ct);
