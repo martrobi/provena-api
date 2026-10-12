@@ -2,7 +2,7 @@
 
 - Date: 2026-10-11
 - Decision status: Accepted target direction
-- Implementation status: Not implemented beyond Supplier and case-level geolocation
+- Implementation status: Partial. Supplier and case-level geolocation exist; Producer, ProductionPlot and PlotRevision exist as a persistence model ([ADR 0006](0006-production-provenance-plot-revisions.md), no API yet). Supplier/producer relationships and case/lot-to-plot attribution are not implemented
 - Approval evidence: Owner's attached foundation brief explicitly states this direction
 
 ## Context

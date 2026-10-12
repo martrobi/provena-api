@@ -21,6 +21,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
     public DbSet<CaseDocument> Documents => Set<CaseDocument>();
     public DbSet<GeoSubmission> Geolocations => Set<GeoSubmission>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+    public DbSet<Producer> Producers => Set<Producer>();
+    public DbSet<ProductionPlot> ProductionPlots => Set<ProductionPlot>();
+    public DbSet<PlotRevision> PlotRevisions => Set<PlotRevision>();
     protected override void OnModelCreating(ModelBuilder b)
     {
         base.OnModelCreating(b);
@@ -36,6 +39,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         ConfigureTenant<Supplier>(b); ConfigureTenant<Product>(b); ConfigureTenant<Shipment>(b);
         ConfigureTenant<EudrCase>(b); ConfigureTenant<EudrRequirement>(b); ConfigureTenant<SupplierRequest>(b);
         ConfigureTenant<SupplierSubmission>(b); ConfigureTenant<CaseDocument>(b); ConfigureTenant<GeoSubmission>(b); ConfigureTenant<AuditEvent>(b);
+        ConfigureTenant<Producer>(b); ConfigureTenant<ProductionPlot>(b); ConfigureTenant<PlotRevision>(b);
         b.Entity<Supplier>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Product>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Shipment>().HasIndex(x => new { x.OrganizationId, x.ReferenceNumber }).IsUnique();
@@ -61,6 +65,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         b.Entity<GeoSubmission>().Property(x => x.RawGeoJson).HasColumnType("jsonb");
         b.Entity<AuditEvent>().Property(x => x.MetadataJson).HasColumnType("jsonb");
         b.Entity<AuditEvent>().HasIndex(x => new { x.EudrCaseId, x.CreatedAtUtc });
+        b.Entity<Producer>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
+        b.Entity<ProductionPlot>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
+        b.Entity<ProductionPlot>().HasOne<Producer>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ProducerId }).HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<PlotRevision>().HasOne<ProductionPlot>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ProductionPlotId }).HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<PlotRevision>().HasIndex(x => new { x.ProductionPlotId, x.Number }).IsUnique();
+        b.Entity<PlotRevision>().HasIndex(x => x.ProductionPlotId).IsUnique().HasFilter("\"SupersededAtUtc\" IS NULL"); // At most one current revision per plot.
+        b.Entity<PlotRevision>().Property(x => x.GeometryJson).HasColumnType("jsonb");
+        b.Entity<PlotRevision>().Property(x => x.AreaHectares).HasPrecision(12, 4);
         foreach (var type in b.Model.GetEntityTypes())
         foreach (var property in type.GetProperties().Where(p => p.ClrType == typeof(string) && p.GetMaxLength() == null && p.GetColumnType() != "jsonb"))
             property.SetMaxLength(4000);
@@ -84,6 +96,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         [typeof(CaseDocument)] = (nameof(CaseDocument.WithdrawnAtUtc), [nameof(CaseDocument.WithdrawnByUserId)]),
         [typeof(GeoSubmission)] = (nameof(GeoSubmission.SupersededAtUtc), []),
         [typeof(SupplierSubmission)] = (nameof(SupplierSubmission.SupersededAtUtc), []),
+        [typeof(PlotRevision)] = (nameof(PlotRevision.SupersededAtUtc), []),
     };
     private static void EnforceRetainedEvidence(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Entity> entry)
     {
@@ -96,13 +109,21 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         if (!changed.Contains(marker) || !fromUnretired || changed.Any(n => n != marker && !companions.Contains(n)))
             throw new InvalidOperationException("Retained evidence is immutable except for one-way retirement.");
     }
+    // Provenance identities are never deleted (deactivate instead); a plot never changes producer.
+    private static void EnforceProvenanceIdentity(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Entity> entry)
+    {
+        if (entry.State == EntityState.Deleted) throw new InvalidOperationException("Provenance identities are never deleted; deactivate them.");
+        if (entry.State == EntityState.Modified && entry.Entity is ProductionPlot && entry.Property(nameof(ProductionPlot.ProducerId)).IsModified)
+            throw new InvalidOperationException("A production plot's producer is immutable; register a new plot instead.");
+    }
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         foreach (var entry in ChangeTracker.Entries<Entity>())
         {
             if (entry.Entity is AuditEvent && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Audit events are append-only.");
-            if (entry.Entity is CaseDocument or GeoSubmission or SupplierSubmission) EnforceRetainedEvidence(entry);
+            if (entry.Entity is CaseDocument or GeoSubmission or SupplierSubmission or PlotRevision) EnforceRetainedEvidence(entry);
+            if (entry.Entity is Producer or ProductionPlot) EnforceProvenanceIdentity(entry);
             if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted)) continue;
             if (entry.Entity is TenantEntity owned && (TenantId == Guid.Empty || owned.OrganizationId != TenantId ||
                 (entry.State != EntityState.Added && entry.OriginalValues.GetValue<Guid>(nameof(TenantEntity.OrganizationId)) != TenantId)))

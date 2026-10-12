@@ -303,6 +303,63 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.HasIndex("EudrCaseId").IsUnique().HasDatabaseName("IX_Geolocations_EudrCaseId").HasFilter("\"SupersededAtUtc\" IS NULL");
             b.ToTable("Geolocations", (string?)null);
         });
+        modelBuilder.Entity("Provena.Api.Domain.Producer", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<string>("Name").IsRequired().HasMaxLength(4000).HasColumnType("character varying(4000)");
+            b.Property<string>("ExternalReference").HasMaxLength(4000).HasColumnType("character varying(4000)");
+            b.Property<string>("CountryCode").HasMaxLength(4000).HasColumnType("character varying(4000)");
+            b.Property<string>("Notes").HasMaxLength(4000).HasColumnType("character varying(4000)");
+            b.Property<bool>("IsActive").HasColumnType("boolean");
+            b.Property<Guid?>("CreatedByUserId").HasColumnType("uuid");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasIndex("OrganizationId", "ExternalReference").IsUnique().HasDatabaseName("IX_Producers_OrganizationId_ExternalReference").HasFilter("\"ExternalReference\" IS NOT NULL");
+            b.ToTable("Producers", (string?)null);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.ProductionPlot", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<Guid>("ProducerId").HasColumnType("uuid");
+            b.Property<string>("Name").IsRequired().HasMaxLength(4000).HasColumnType("character varying(4000)");
+            b.Property<string>("ExternalReference").HasMaxLength(4000).HasColumnType("character varying(4000)");
+            b.Property<string>("Notes").HasMaxLength(4000).HasColumnType("character varying(4000)");
+            b.Property<bool>("IsActive").HasColumnType("boolean");
+            b.Property<Guid?>("CreatedByUserId").HasColumnType("uuid");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasIndex("OrganizationId", "ProducerId").HasDatabaseName("IX_ProductionPlots_OrganizationId_ProducerId");
+            b.HasIndex("OrganizationId", "ExternalReference").IsUnique().HasDatabaseName("IX_ProductionPlots_OrganizationId_ExternalReference").HasFilter("\"ExternalReference\" IS NOT NULL");
+            b.ToTable("ProductionPlots", (string?)null);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.PlotRevision", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<Guid>("ProductionPlotId").HasColumnType("uuid");
+            b.Property<int>("Number").HasColumnType("integer");
+            b.Property<string>("CountryCode").IsRequired().HasMaxLength(4000).HasColumnType("character varying(4000)");
+            b.Property<int>("GeometryType").HasColumnType("integer");
+            b.Property<string>("GeometryJson").IsRequired().HasColumnType("jsonb");
+            b.Property<decimal?>("AreaHectares").HasPrecision(12, 4).HasColumnType("numeric(12,4)");
+            b.Property<string>("Note").HasMaxLength(4000).HasColumnType("character varying(4000)");
+            b.Property<Guid?>("CreatedByUserId").HasColumnType("uuid");
+            b.Property<DateTimeOffset?>("SupersededAtUtc").HasColumnType("timestamp with time zone");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasIndex("OrganizationId", "ProductionPlotId").HasDatabaseName("IX_PlotRevisions_OrganizationId_ProductionPlotId");
+            b.HasIndex("ProductionPlotId", "Number").IsUnique().HasDatabaseName("IX_PlotRevisions_ProductionPlotId_Number");
+            b.HasIndex("ProductionPlotId").IsUnique().HasDatabaseName("IX_PlotRevisions_ProductionPlotId").HasFilter("\"SupersededAtUtc\" IS NULL");
+            b.ToTable("PlotRevisions", (string?)null);
+        });
         modelBuilder.Entity("Provena.Api.Domain.AuditEvent", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
@@ -406,6 +463,20 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
         {
             b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
             b.HasOne("Provena.Api.Domain.EudrCase", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.Producer", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+        modelBuilder.Entity("Provena.Api.Domain.ProductionPlot", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.Producer", null).WithMany().HasForeignKey("OrganizationId", "ProducerId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+        modelBuilder.Entity("Provena.Api.Domain.PlotRevision", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.ProductionPlot", null).WithMany().HasForeignKey("OrganizationId", "ProductionPlotId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
         });
     }
 }

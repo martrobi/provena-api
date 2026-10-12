@@ -33,7 +33,7 @@ Optional live smoke: `python scripts/smoke.py --base-url http://localhost:5000`.
 
 ## Actual tests (source inventory)
 
-Unit `DomainTests.cs` has 3 Fact methods and 4 Theory methods with 18 InlineData rows: 21 cases by static count, not an executed/discovered test count. It covers token shape/hash/randomness, preservation of terminal states, state priority, CN format/leading zeroes, allowed/invalid geometry and file MIME/size.
+Unit `DomainTests.cs` has 8 Fact methods and 7 Theory methods with 41 InlineData rows by static count, not an executed/discovered test count. It covers token shape/hash/randomness, preservation of terminal states, state priority, CN format/leading zeroes, allowed/invalid case geometry, plot geometry (`ValidatePlotGeometry`: Point/Polygon/MultiPolygon accepted; Feature, FeatureCollection, LineString, empty/unclosed/bowtie, out-of-range/non-finite, wrong Point arity and oversize rejected; case `Validate` still rejects Point), the material-change comparison (`IsMaterialChange`: ring start/orientation/component order/single-component MultiPolygon equal; moved vertex/different Point/country/area different; `1.5000` equals `1.5`) and file MIME/size.
 
 `EndpointInventoryTests.cs` (3 Facts) reads `EndpointDataSource` and checks:
 - the exact route/method set;
@@ -77,6 +77,7 @@ It registers only two tenants because the auth limiter is shared across the fixt
 | Evidence mutation / review | Accepted → changed evidence → Submitted; NotRequired behaviour; completion and terminal cases |
 | Imports | Header/size/row limits, partial success, duplicate and missing references, cross-tenant references, multiline rows |
 | Storage / export | Invalid files, cleanup failures, replaced geo, malicious filenames/CSV values, status-specific export contract |
+| Production provenance (model) | `ProvenanceModelTests` (direct tenant-bound `AppDbContext`, no HTTP yet): guard rejects deletes, revision mutation, un-superseding and `ProducerId` change while allowing metadata edits and one supersede; `Current()`; second current revision rejected by `IX_PlotRevisions_ProductionPlotId`; tenant filter, organization stamping and raw-SQL cross-organization FK violations; external-reference partial uniqueness. `MigrationTests` adds the provenance schema/indexes/composite FKs, upgrade from `RetainedEvidence` with seeded rows (provenance tables empty), the index violations and the Down guard. HTTP-level provenance tests arrive with the endpoint slice |
 | Retained evidence | `RetainedEvidenceTests` (document withdraw, geometry supersede incl. public portal and export, repeated details saves, resubmission after acceptance, persistence guard, bytes still readable through `IFileStorage`) and the retained-evidence cases in `MigrationTests` (partial indexes, upgrade with rows, Down guard). Never assert that committed evidence bytes are deleted |
 | Documentation-only | Existing-path and link checks, claims against source, no accidental code diff |
 

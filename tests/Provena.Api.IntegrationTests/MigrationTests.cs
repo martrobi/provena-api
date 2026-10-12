@@ -69,7 +69,9 @@ public sealed class MigrationTests : IAsyncLifetime
     }
 
     private const string EmptyJson = "[]"; // Any valid jsonb; avoids braces, which ExecuteSqlRawAsync treats as format placeholders.
-    private const string LatestMigration = "20261012225511_RetainedEvidence";
+    private const string RetainedEvidenceMigration = "20261012225511_RetainedEvidence";
+    private const string ProvenanceMigration = "20261012234200_ProductionProvenance";
+    private static readonly string[] ProvenanceTables = ["PlotRevisions", "ProductionPlots", "Producers"];
     private sealed record SeededCase(Guid OrganizationId, Guid CaseId, Guid GeoId);
 
 #pragma warning disable EF1002 // Test-only SQL built from locally generated GUIDs and constants; no external input.
@@ -139,10 +141,108 @@ VALUES ('{Guid.NewGuid()}', now(), now(), '{seed.OrganizationId}', '{seed.CaseId
         var failure = await Assert.ThrowsAnyAsync<Exception>(() => db.GetService<IMigrator>().MigrateAsync(InitialMigration));
         Assert.Contains("Retained evidence versions exist; rollback would destroy history", failure.ToString());
 
-        Assert.Contains(LatestMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Contains(RetainedEvidenceMigration, await db.Database.GetAppliedMigrationsAsync());
         Assert.Equal(2, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM "Geolocations" """).SingleAsync());
         Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM "Geolocations" WHERE "SupersededAtUtc" IS NOT NULL""").SingleAsync());
     }
+
+#pragma warning disable EF1002 // Test-only SQL built from constants and locally generated GUIDs; no external input.
+    [Fact]
+    public async Task Clean_database_has_provenance_tables_indexes_and_composite_foreign_keys()
+    {
+        await using var db = NewContext();
+        await db.Database.MigrateAsync();
+        var tables = await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_schema = 'public'").ToListAsync();
+        Assert.Subset(tables.ToHashSet(), ProvenanceTables.ToHashSet());
+
+        async Task<string> Index(string name) => await db.Database.SqlQueryRaw<string>("SELECT indexdef AS \"Value\" FROM pg_indexes WHERE indexname = {0}", name).SingleAsync();
+        var current = await Index("IX_PlotRevisions_ProductionPlotId");
+        Assert.Contains("UNIQUE", current); Assert.Contains("SupersededAtUtc\" IS NULL", current);
+        var number = await Index("IX_PlotRevisions_ProductionPlotId_Number");
+        Assert.Contains("UNIQUE", number); Assert.DoesNotContain("WHERE", number);
+        foreach (var name in new[] { "IX_Producers_OrganizationId_ExternalReference", "IX_ProductionPlots_OrganizationId_ExternalReference" })
+        { var def = await Index(name); Assert.Contains("UNIQUE", def); Assert.Contains("ExternalReference\" IS NOT NULL", def); }
+
+        var foreignKeys = await db.Database.SqlQueryRaw<string>("""
+            SELECT conrelid::regclass::text || ' ' || pg_get_constraintdef(oid) AS "Value" FROM pg_constraint
+            WHERE contype = 'f' AND conrelid::regclass::text IN ('"ProductionPlots"', '"PlotRevisions"')
+            """).ToListAsync();
+        Assert.Contains(foreignKeys, f => f.Contains("(\"OrganizationId\", \"ProducerId\") REFERENCES \"Producers\"(\"OrganizationId\", \"Id\")"));
+        Assert.Contains(foreignKeys, f => f.Contains("(\"OrganizationId\", \"ProductionPlotId\") REFERENCES \"ProductionPlots\"(\"OrganizationId\", \"Id\")"));
+        Assert.All(foreignKeys, f => Assert.Contains("ON DELETE RESTRICT", f));
+    }
+
+    [Fact]
+    public async Task Upgrade_from_retained_evidence_keeps_rows_and_leaves_provenance_tables_empty()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        await SeedEvidenceAtInitialSchema(db);
+        await db.GetService<IMigrator>().MigrateAsync(RetainedEvidenceMigration);
+        Assert.Equal([InitialMigration, RetainedEvidenceMigration], (await db.Database.GetAppliedMigrationsAsync()).ToArray());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('Producers','ProductionPlots','PlotRevisions')").ToListAsync());
+
+        await db.Database.MigrateAsync();
+
+        Assert.Contains(ProvenanceMigration, await db.Database.GetAppliedMigrationsAsync());
+        foreach (var table in new[] { "Documents", "Geolocations", "Submissions", "Cases", "Shipments", "Suppliers", "Products", "Organizations" })
+            Assert.Equal(1, await db.Database.SqlQueryRaw<int>($"SELECT count(*)::int AS \"Value\" FROM \"{table}\"").SingleAsync());
+        foreach (var table in ProvenanceTables)
+            Assert.Equal(0, await db.Database.SqlQueryRaw<int>($"SELECT count(*)::int AS \"Value\" FROM \"{table}\"").SingleAsync());
+    }
+
+    private static async Task<(Guid Org, Guid Plot)> InsertPlot(AppDbContext db)
+    {
+        Guid org = Guid.NewGuid(), producer = Guid.NewGuid(), plot = Guid.NewGuid();
+        await db.Database.ExecuteSqlRawAsync($"""
+INSERT INTO "Organizations" ("Id","CreatedAtUtc","UpdatedAtUtc","Name") VALUES ('{org}', now(), now(), 'Provenance Org');
+INSERT INTO "Producers" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","Name","IsActive") VALUES ('{producer}', now(), now(), '{org}', 'Producer', true);
+INSERT INTO "ProductionPlots" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","ProducerId","Name","IsActive") VALUES ('{plot}', now(), now(), '{org}', '{producer}', 'Plot', true);
+INSERT INTO "PlotRevisions" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","ProductionPlotId","Number","CountryCode","GeometryType","GeometryJson") VALUES ('{Guid.NewGuid()}', now(), now(), '{org}', '{plot}', 1, 'BR', 1, '{EmptyJson}');
+""");
+        return (org, plot);
+    }
+
+    private static Task InsertRevision(AppDbContext db, Guid org, Guid plot, int number, bool superseded) => db.Database.ExecuteSqlRawAsync($"""
+INSERT INTO "PlotRevisions" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","ProductionPlotId","Number","CountryCode","GeometryType","GeometryJson","SupersededAtUtc")
+VALUES ('{Guid.NewGuid()}', now(), now(), '{org}', '{plot}', {number}, 'BR', 1, '{EmptyJson}', {(superseded ? "now()" : "NULL")});
+""");
+
+    [Fact]
+    public async Task Second_current_plot_revision_violates_the_partial_unique_index_but_a_superseded_one_inserts()
+    {
+        await using var db = NewContext();
+        await db.Database.MigrateAsync();
+        var (org, plot) = await InsertPlot(db);
+
+        var second = await Assert.ThrowsAnyAsync<Exception>(() => InsertRevision(db, org, plot, 2, superseded: false));
+        Assert.Contains("IX_PlotRevisions_ProductionPlotId", second.ToString());
+        var duplicateNumber = await Assert.ThrowsAnyAsync<Exception>(() => InsertRevision(db, org, plot, 1, superseded: true));
+        Assert.Contains("IX_PlotRevisions_ProductionPlotId_Number", duplicateNumber.ToString());
+        await InsertRevision(db, org, plot, 2, superseded: true);
+    }
+
+    [Fact]
+    public async Task Provenance_down_is_refused_while_a_producer_exists_and_succeeds_when_tables_are_empty()
+    {
+        await using var db = NewContext();
+        await db.Database.MigrateAsync();
+        await InsertPlot(db);
+
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => db.GetService<IMigrator>().MigrateAsync(RetainedEvidenceMigration));
+        Assert.Contains("Production provenance records exist; rollback would destroy history", failure.ToString());
+        Assert.Contains(ProvenanceMigration, await db.Database.GetAppliedMigrationsAsync());
+        foreach (var table in ProvenanceTables)
+            Assert.Equal(1, await db.Database.SqlQueryRaw<int>($"SELECT count(*)::int AS \"Value\" FROM \"{table}\"").SingleAsync());
+
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "PlotRevisions", "ProductionPlots", "Producers" """);
+        await db.GetService<IMigrator>().MigrateAsync(RetainedEvidenceMigration);
+
+        Assert.DoesNotContain(ProvenanceMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('Producers','ProductionPlots','PlotRevisions')").ToListAsync());
+    }
+
+#pragma warning restore EF1002
 
     [Fact]
     public async Task Down_succeeds_when_no_retained_versions_exist()
