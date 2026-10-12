@@ -176,6 +176,25 @@ public sealed class HttpContractTests(ApiFactory factory)
     }
 
     [Fact]
+    public async Task Product_list_filters_by_is_active_combined_with_search_and_paging()
+    {
+        var (a, b) = await Tenants(); var tag = Guid.NewGuid().ToString("N");
+        foreach (var active in new[] { true, true, true, false, false })
+            await Json(await a.PostAsJsonAsync("/api/products", new { name = "Filter " + tag, cnCode = "0901", commodityType = "Coffee", isActive = active }));
+        var both = await Page(a, $"/api/products?search=Filter {tag}&pageSize=100");
+        Assert.Equal(5, both.Root.GetProperty("totalCount").GetInt32());
+        var active3 = await Page(a, $"/api/products?search=Filter {tag}&isActive=true&pageSize=100");
+        Assert.Equal(3, active3.Root.GetProperty("totalCount").GetInt32()); Assert.All(active3.Items, x => Assert.True(x.GetProperty("isActive").GetBoolean()));
+        var inactive2 = await Page(a, $"/api/products?search=Filter {tag}&isActive=false&pageSize=100");
+        Assert.Equal(2, inactive2.Root.GetProperty("totalCount").GetInt32()); Assert.All(inactive2.Items, x => Assert.False(x.GetProperty("isActive").GetBoolean()));
+        var first = await Page(a, $"/api/products?search=Filter {tag}&isActive=true&pageSize=2"); var second = await Page(a, $"/api/products?search=Filter {tag}&isActive=true&page=2&pageSize=2");
+        Assert.Equal(3, first.Root.GetProperty("totalCount").GetInt32()); Assert.Equal([2, 1], [first.Items.Count, second.Items.Count]);
+        Assert.Equal(Ids(active3.Items), Ids(first.Items).Concat(Ids(second.Items)).ToList());
+        Assert.Equal(0, (await Page(b, $"/api/products?search=Filter {tag}&isActive=true")).Root.GetProperty("totalCount").GetInt32());
+        await Problem(await a.GetAsync("/api/products?isActive=abc"), HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Shipment_list_is_paginated_newest_first_with_stable_order()
     {
         var (a, _) = await Tenants(); var created = new List<Guid>();
@@ -196,6 +215,7 @@ public sealed class HttpContractTests(ApiFactory factory)
         Assert.Equal(1, (await Page(a, $"/api/suppliers?search={tag}")).Root.GetProperty("totalCount").GetInt32());
         Assert.Equal(0, (await Page(b, $"/api/suppliers?search={tag}")).Root.GetProperty("totalCount").GetInt32());
         Assert.Equal(0, (await Page(b, $"/api/products?search={tag}")).Root.GetProperty("totalCount").GetInt32());
+        Assert.Equal(0, (await Page(b, $"/api/products?search={tag}&isActive=true")).Root.GetProperty("totalCount").GetInt32());
         Assert.DoesNotContain(ids.Shipment, Ids((await Page(b, "/api/shipments?pageSize=100")).Items));
     }
 

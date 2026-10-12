@@ -15,10 +15,11 @@ public sealed class CatalogService(AppDbContext db, TenantContext tenant, IValid
         if (!string.IsNullOrWhiteSpace(search)) { var term = search.ToLowerInvariant(); query = query.Where(x => x.Name.ToLower().Contains(term)); }
         return query.OrderBy(x => x.Name).ThenBy(x => x.Id).ToPageAsync(page, pageSize, ct);
     }
-    public Task<PageResult<Product>> Products(string? search, int page, int pageSize, CancellationToken ct)
+    public Task<PageResult<Product>> Products(string? search, bool? isActive, int page, int pageSize, CancellationToken ct)
     {
         if (search?.Length > 200) throw new ApiException(400, "Search is limited to 200 characters.");
         var query = db.Products.AsNoTracking();
+        if (isActive.HasValue) query = query.Where(x => x.IsActive == isActive.Value);
         if (!string.IsNullOrWhiteSpace(search)) { var term = search.ToLowerInvariant(); query = query.Where(x => x.Name.ToLower().Contains(term) || x.CnCode.Contains(term)); }
         return query.OrderBy(x => x.Name).ThenBy(x => x.Id).ToPageAsync(page, pageSize, ct);
     }

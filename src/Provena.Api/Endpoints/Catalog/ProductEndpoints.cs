@@ -15,7 +15,7 @@ internal static class ProductEndpoints
         group.MapPut("/{id:guid}", Update);
         group.MapDelete("/{id:guid}", Delete);
     }
-    private static async Task<Ok<PageResult<Product>>> List(string? search, CatalogService service, CancellationToken ct, int page = 1, int pageSize = 25) => TypedResults.Ok(await service.Products(search, page, pageSize, ct));
+    private static async Task<Ok<PageResult<Product>>> List(string? search, bool? isActive, CatalogService service, CancellationToken ct, int page = 1, int pageSize = 25) => TypedResults.Ok(await service.Products(search, isActive, page, pageSize, ct));
     private static async Task<Ok<Product>> Get(Guid id, CatalogService service, CancellationToken ct) => TypedResults.Ok(await service.Product(id, ct));
     private static async Task<CreatedAtRoute<Product>> Create(ProductInput input, CatalogService service, CancellationToken ct)
     { var value = await service.SaveProduct(null, input, ct); return TypedResults.CreatedAtRoute(value, GetRoute, new { id = value.Id }); }
