@@ -13,6 +13,7 @@ using Provena.Api.Common;
 using Provena.Api.Contracts;
 using Provena.Api.Data;
 using Provena.Api.Domain;
+using Provena.Api.Endpoints;
 using Provena.Api.Infrastructure;
 using Provena.Api.Services;
 using Scalar.AspNetCore;
@@ -21,7 +22,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Framework request-start logs include token-bearing URL paths. Application logs use IDs only.
 builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
 builder.Logging.AddFilter("Microsoft.AspNetCore.Routing", LogLevel.Warning);
-builder.Logging.AddFilter("Microsoft.AspNetCore.Mvc", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.AspNetCore.Http.RequestDelegateFactory", LogLevel.Warning);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<TenantContext>();
 builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
@@ -48,7 +49,13 @@ builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = 
     c.ProblemDetails.Extensions["traceId"] = c.HttpContext.TraceIdentifier;
 });
 builder.Services.AddExceptionHandler<ExceptionHandler>();
-builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false));
+    options.SerializerOptions.MaxDepth = 32; // Input depth bound carried over from the former MVC JSON defaults.
+});
+// Parameter-binding failures (malformed JSON, unparsable values, wrong content type) flow through ExceptionHandler.
+builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterValidator>();
 builder.Services.AddScoped<AuthService>(); builder.Services.AddScoped<CatalogService>(); builder.Services.AddScoped<ShipmentService>();
 builder.Services.AddScoped<CaseService>(); builder.Services.AddScoped<EudrCaseStatusService>(); builder.Services.AddScoped<AuditService>();
@@ -106,7 +113,7 @@ app.Use(async (context, next) =>
     await next();
 });
 app.UseRouting(); app.UseCors(); app.UseAuthentication(); app.UseAuthorization(); app.UseRateLimiter();
-app.MapControllers();
+app.MapProvenaEndpoints();
 if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
 { app.MapOpenApi(); app.MapScalarApiReference("/scalar", options => options.WithTitle("Provena API").AddPreferredSecuritySchemes("Bearer")); }
 if (app.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("SeedDemoData"))

@@ -2,15 +2,24 @@
 
 ## Observed source structure
 
-A single ASP.NET Core application contains controllers, record contracts, services, mutable domain entities and infrastructure adapters. Domain folders organize code but share the same namespace and assembly. Services call EF directly; no repository layer, mediator, aggregate implementation or event bus is supplied. `Data/AppDbContext.cs` derives from IdentityDbContext and contains inline EF mappings, tenant query filters and tracked-write guards; [DATABASE](DATABASE.md) owns their scope.
+A single ASP.NET Core application contains Minimal API endpoint modules, record contracts, services, mutable domain entities and infrastructure adapters. Domain folders organize code but share the same namespace and assembly. Services call EF directly; no repository layer, mediator, aggregate implementation or event bus is supplied. `Data/AppDbContext.cs` derives from IdentityDbContext and contains inline EF mappings, tenant query filters and tracked-write guards; [DATABASE](DATABASE.md) owns their scope.
 
-HTTP → middleware/auth → controller model binding → service validation/orchestration → EF and optional file/email I/O → DTO/entity/anonymous response. Read methods frequently use `AsNoTracking`. FluentValidation is invoked explicitly by services, not through an automatic MVC FluentValidation pipeline.
+HTTP → middleware/auth → Minimal API parameter binding → endpoint handler → service validation/orchestration → EF and optional file/email I/O → `TypedResults` with a DTO/entity/anonymous response. Read methods frequently use `AsNoTracking`. FluentValidation is invoked explicitly by services, not through an endpoint filter or automatic pipeline.
+
+## HTTP layer convention
+
+Owner decision recorded in [ADR 0003](adr/0003-minimal-api-http-layer.md):
+- MVC Controllers are not used. Endpoints live in `src/Provena.Api/Endpoints/<Feature>/`, one static `Map<Feature>Endpoints` module per route group, with named private static handlers.
+- `Endpoints/ProvenaEndpoints.cs` exposes the only registration call, `app.MapProvenaEndpoints()`. Program.cs maps no individual endpoints.
+- Internal groups nest under the authorized `/api` group. Public capability routes have their own anonymous, rate-limited group.
+- Handlers only bind input, call one scoped service method and map the result. Validation, transactions, locks, tenant checks and status transitions stay in services.
+- Shared HTTP conventions (upload limits, lenient query/form enum parsing) live in `Endpoints/EndpointConventions.cs`.
 
 ## Composition and lifetime
 
 `Program.cs` registers `AppDbContext` via `AddDbContext` (scoped default); `TenantContext`, orchestration/auth/audit/seeder services and `IEmailSender` are scoped. Token generation, file/geometry validation and `IFileStorage` are singleton. Do not add request/tenant state to singleton services. Identity uses `ApplicationUser`, Guid roles, EF stores and SignInManager. Existing adapters are `LocalFileStorage` and `DevelopmentEmailSender` in every environment.
 
-Middleware: exception handler → status code pages → production HSTS/HTTPS redirect → no-store/nosniff/no-referrer headers → routing → CORS → authentication → authorization → rate limiter → controller endpoints. OpenAPI/Scalar are mapped only in Development/Testing. Startup validates selected configuration; [DEPLOYMENT](DEPLOYMENT.md) owns the settings.
+Middleware: exception handler → status code pages → production HSTS/HTTPS redirect → no-store/nosniff/no-referrer headers → routing → CORS → authentication → authorization → rate limiter → Minimal API endpoints (`MapProvenaEndpoints`). HTTP JSON options (string enums, max depth 32) and `RouteHandlerOptions.ThrowOnBadRequest` are configured in Program.cs. OpenAPI/Scalar are mapped only in Development/Testing. Startup validates selected configuration; [DEPLOYMENT](DEPLOYMENT.md) owns the settings.
 
 ## Transactions and consistency
 

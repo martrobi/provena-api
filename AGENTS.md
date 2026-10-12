@@ -1,6 +1,6 @@
 # Provena agent entry point
 
-Provena is a .NET 10 controller-based API for collecting and reviewing EUDR workflow evidence. It does not determine legal compliance or submit a DDS.
+Provena is a .NET 10 Minimal API application for collecting and reviewing EUDR workflow evidence. It does not determine legal compliance or submit a DDS.
 
 Read this file first; **do not load all documentation or skills by default**. Choose the smallest relevant route below, then inspect the named implementation and its tests. Paths are relative to the repository root.
 
@@ -110,6 +110,12 @@ Use [discovery findings](docs/AI_DISCOVERY_REPORT.md) only for baseline issues o
 ## Project rules
 
 - Follow the current API → scoped service → DbContext boundaries unless the task explicitly changes that architecture. Do not add repositories, CQRS, mediator, new projects or packages without a concrete approved need. Match nearby style; avoid incidental reformatting.
+- The HTTP layer is Minimal APIs, not MVC Controllers ([ADR 0003](docs/adr/0003-minimal-api-http-layer.md)):
+  - Map endpoints in `src/Provena.Api/Endpoints/<Feature>/` modules, registered only through `MapProvenaEndpoints()`. Never map endpoints in Program.cs.
+  - Keep handlers thin: bind, call one service method, return `TypedResults`.
+  - Internal routes belong under the authorized `/api` group.
+  - Upload groups use `WithUploadLimits()` plus the documented antiforgery opt-out.
+  - Update `EndpointInventoryTests` whenever the route surface changes.
 - Keep validation server-side, preserve cancellation, transactions, per-case locks and post-lock token rechecks. Queries returning tenant data must be tenant-scoped; verify enforcement, including writes and foreign references. Never trust client `OrganizationId`.
 - Keep internal routes authenticated; the public capability grants access to one request/case only. No new `IgnoreQueryFilters` use without explicit security review. Never expose token hashes, storage keys, internal notes or audit payloads through public DTOs.
 - Never log passwords, bearer tokens, public URLs, raw evidence or connection secrets. Do not commit secrets or uploaded data. Frontend checks do not authorize backend operations.

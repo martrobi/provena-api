@@ -6,14 +6,15 @@ This file separates observed code controls from required invariants and recommen
 
 | Boundary | Observed control | Unverified or absent |
 | --- | --- | --- |
-| Internal API | Authorize attributes; JWT issuer/audience/signature/lifetime checks; 30-second clock skew | No fallback policy or reviewer/Owner endpoint policy; live membership validation only in Me, not all operations |
+| Internal API | `/api` route group `RequireAuthorization()` (only register/login AllowAnonymous), pinned by `EndpointInventoryTests`; JWT issuer/audience/signature/lifetime checks; 30-second clock skew | No fallback policy for routes mapped outside `/api`, and no reviewer/Owner endpoint policy; live membership validation only in Me, not all operations |
 | Password login | Identity; unique email configured; 12-character complexity; lockout configured at 5 failures / 15 minutes; CheckPasswordSignInAsync lockout enabled | End-to-end lockout behaviour not tested here; email verification/reset/refresh/revocation workflows absent |
 | Organization | Query filters on all ten TenantEntity types; tracked async-save ownership guard; composite tenant-aware FKs for major relationships; explicit organization in case lock SQL | Identity/Organization/OrganizationUser are unfiltered; alternative save overloads, raw SQL and bulk writes are outside the custom guard; some attribution IDs have no FK |
 | Public capability | Random 32-byte base64url token; SHA-256 stored hash; strict 43-character shape; expiry/revocation; post-lock hash/lifetime recheck | Anyone holding link acts as supplier; no supplier identity proof; no one-use rule |
 | Rate limits | Per-RemoteIpAddress fixed windows: auth 10/5 minutes, supplier 60/minute, no queue | Process-local only; no reverse-proxy forwarded-header configuration or global upload/tenant quota |
+| Upload requests | 21 MiB request/multipart limits on upload route groups; antiforgery explicitly disabled there because authentication is bearer-header or URL-capability only (no cookies) | Kestrel request-size enforcement verified only via endpoint metadata (TestServer does not enforce it); introducing cookie/browser-session auth requires revisiting the antiforgery opt-out |
 | File names/paths | Basename sanitization, extension/MIME allowlist, generated storage keys validated by regex, local root outside any configured static serving | MIME supplied by client; no magic-byte sniffing, antivirus, quarantine or durable orphan cleanup |
 | Geometry | Shape/range/topology/depth checks | No truth/ownership/deforestation checks; no explicit vertex limit |
-| Errors/logs | Generic unexpected errors; app logs omit tokens/SQL/body; ProblemDetails Instance removed; selected framework logs suppressed | Proxy/APM/access logs outside this code can retain token paths; email stub logs recipient email |
+| Errors/logs | Generic unexpected errors; app logs omit tokens/SQL/body; ProblemDetails Instance removed; selected framework logs suppressed (hosting diagnostics, routing, Minimal API RequestDelegateFactory below Warning) | Proxy/APM/access logs outside this code can retain token paths; email stub logs recipient email |
 | Browser boundary | Explicit CORS origins, wildcard rejected; no-store, no-referrer, nosniff; production HTTPS redirect/HSTS | CORS is not authorization; host/proxy/TLS topology not configured; AllowedHosts is `*` |
 
 ## Public token flow

@@ -35,7 +35,29 @@ Optional live smoke: `python scripts/smoke.py --base-url http://localhost:5000`.
 
 Unit `DomainTests.cs` has 3 Fact methods and 4 Theory methods with 18 InlineData rows: 21 cases by static count, not an executed/discovered test count. It covers token shape/hash/randomness, preservation of terminal states, state priority, CN format/leading zeroes, allowed/invalid geometry and file MIME/size.
 
-Integration `WorkflowTests.cs` has 2 Facts:
+`EndpointInventoryTests.cs` (3 Facts) reads `EndpointDataSource` and checks:
+- the exact route/method set;
+- authenticated vs anonymous access per endpoint;
+- rate-limit policy names;
+- 21 MiB request/multipart metadata on upload groups;
+- that no endpoint requires antiforgery and no MVC controller types or controller endpoints exist.
+
+`HttpContractTests.cs` (9 Facts) pins the HTTP contract that the Minimal API migration had to preserve. It was written and run green against the MVC controllers first. It covers:
+- Location on create (absolute for catalog, absent for shipments);
+- 204 for empty geolocation;
+- optional complete body;
+- case-insensitive/numeric query and form enum binding;
+- 400/404/405/415 binding and routing failures;
+- JSON depth and integer-enum rejection;
+- the ProblemDetails envelope (traceId, no instance);
+- 401 on every internal feature group, and cross-tenant 404 for file routes;
+- download/export headers;
+- CSV import happy paths with partial failure;
+- the OpenAPI path set.
+
+It registers only two tenants because the auth limiter is shared across the fixture.
+
+`WorkflowTests.cs` has 2 Facts:
 
 - `Full_http_flow_and_organization_isolation`: registration/login/Me, unauthenticated supplier denial, shipment/checklist, another tenant's supplier/case/export/shipment denial and foreign relationship rejection, hash storage, public projection, incomplete completion conflict, details/files/geometry, rejection/resubmission, internal review, ZIP entries, completion and terminal public-write rejection.
 - `Token_rotation_revocation_and_expiry_are_enforced`: old-token denial after rotation, revoke, regenerated token and forced expiry.
@@ -47,7 +69,7 @@ Integration `WorkflowTests.cs` has 2 Facts:
 | Change | Meaningful checks |
 | --- | --- |
 | Pure rule / validator | Focused unit boundary and invalid-input cases; status precedence and terminal preservation where relevant |
-| Endpoint / DTO / enum / status code | HTTP request/response assertions; validation and compatibility; relevant smoke contract |
+| Endpoint / DTO / enum / status code | HTTP request/response assertions; validation and compatibility; relevant smoke contract; update the expected surface in `EndpointInventoryTests` for added/removed/re-protected routes |
 | Tenant query / relation / download | Real PostgreSQL HTTP tests for organization A vs B, wrong-case resource and unauthenticated callers |
 | EF schema | Clean migration, snapshot check, prior-schema upgrade with data, constraints and tenant-consistent relationships; preserve the initial migration target model when regenerating the snapshot |
 | Persistence guard | Empty/foreign tenant, attempted tenant reassignment, audit update/delete, timestamp scope and alternative write APIs |
@@ -57,7 +79,7 @@ Integration `WorkflowTests.cs` has 2 Facts:
 | Storage / export | Invalid files, cleanup failures, replaced geo, malicious filenames/CSV values, status-specific export contract |
 | Documentation-only | Existing-path and link checks, claims against source, no accidental code diff |
 
-Known missing coverage includes import HTTP cases, archive/catalog-delete/edit restrictions, broad cross-tenant write/file/product paths, waiver permissions, rate limits/lockout, concurrent requests, storage failures, migration upgrades and exact export-manifest/error contracts. There are also no focused tests for all SaveChanges guard boundaries or the initial-migration/snapshot coupling. The two broad workflows are useful, not a complete regression suite. Do not add trivial tests that merely mirror documentation; add tests resolving the changed behaviour or risk.
+Known missing coverage includes import header/size/row-limit and cross-tenant reference cases (only happy paths, partial failure and wrong file type are covered), Kestrel request-size enforcement (metadata only), archive/catalog-delete/edit restrictions, broad cross-tenant write/file/product paths, waiver permissions, rate limits/lockout, concurrent requests, storage failures, migration upgrades and exact export-manifest/error contracts. There are also no focused tests for all SaveChanges guard boundaries or the initial-migration/snapshot coupling. The two broad workflows are useful, not a complete regression suite. Do not add trivial tests that merely mirror documentation; add tests resolving the changed behaviour or risk.
 
 ## Reporting
 

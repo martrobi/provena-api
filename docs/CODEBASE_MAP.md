@@ -7,11 +7,12 @@ All paths below are repository-relative. One application project; two test proje
 | Composition, middleware, JWT, rate limits, CORS, OpenAPI | `src/Provena.Api/Program.cs` |
 | Registration, login, membership, JWT issuance | `src/Provena.Api/Auth/AuthService.cs` |
 | Claim/public-token tenant context | `src/Provena.Api/Auth/TenantContext.cs` |
-| Auth routes | `src/Provena.Api/Controllers/AuthController.cs` |
-| Supplier/product CRUD | `src/Provena.Api/Controllers/CatalogControllers.cs` → `Services/CatalogService.cs` |
-| Shipments, cases, dashboard, request management | `src/Provena.Api/Controllers/CasesControllers.cs` → `ShipmentService`, `CaseService`, `SupplierRequestService`, `ExportService` in `Services/` |
-| Internal document/geo routes and CSV imports | `src/Provena.Api/Controllers/FilesControllers.cs` → `Services/CaseFileService.cs`, `Services/ImportService.cs` |
-| Public capability routes | `src/Provena.Api/Controllers/PublicSupplierController.cs` → `Services/SupplierRequestService.cs`, `Services/CaseFileService.cs` |
+| Endpoint registration (`MapProvenaEndpoints`, `/api` auth group) and shared HTTP conventions | `src/Provena.Api/Endpoints/ProvenaEndpoints.cs`, `Endpoints/EndpointConventions.cs` |
+| Auth routes | `src/Provena.Api/Endpoints/Auth/AuthEndpoints.cs` |
+| Supplier/product CRUD | `src/Provena.Api/Endpoints/Catalog/SupplierEndpoints.cs`, `ProductEndpoints.cs` → `Services/CatalogService.cs` |
+| Shipments, cases, dashboard, request management | `src/Provena.Api/Endpoints/Shipments/ShipmentEndpoints.cs`, `Endpoints/Cases/CaseEndpoints.cs`, `Cases/DashboardEndpoints.cs`, `Endpoints/SupplierRequests/SupplierRequestEndpoints.cs` → `ShipmentService`, `CaseService`, `SupplierRequestService`, `ExportService` in `Services/` |
+| Internal document/geo routes and CSV imports | `src/Provena.Api/Endpoints/Cases/CaseFileEndpoints.cs`, `Endpoints/Imports/ImportEndpoints.cs` → `Services/CaseFileService.cs`, `Services/ImportService.cs` |
+| Public capability routes | `src/Provena.Api/Endpoints/SupplierRequests/PublicSupplierEndpoints.cs` → `Services/SupplierRequestService.cs`, `Services/CaseFileService.cs` |
 | Case state priority | `src/Provena.Api/Services/EudrCaseStatusService.cs` |
 | Token generation/hash/shape | `src/Provena.Api/Services/SupplierTokenService.cs` |
 | Geometry and file validators | `src/Provena.Api/Services/GeoJsonValidationService.cs`, `FileValidationService.cs` |
@@ -26,7 +27,8 @@ All paths below are repository-relative. One application project; two test proje
 | Error mapping / app exceptions | `src/Provena.Api/Common/ExceptionHandler.cs`, `ApiException.cs` |
 | Audit / demo data | `src/Provena.Api/Services/AuditService.cs`, `DevelopmentSeeder.cs` |
 | Pure rules tests | `tests/Provena.Api.UnitTests/DomainTests.cs` |
-| Real PostgreSQL HTTP tests | `tests/Provena.Api.IntegrationTests/ApiFactory.cs`, `WorkflowTests.cs` |
+| Real PostgreSQL HTTP tests | `tests/Provena.Api.IntegrationTests/ApiFactory.cs`, `WorkflowTests.cs`, `HttpContractTests.cs` |
+| Endpoint surface inventory (routes, auth, rate limits, upload metadata) | `tests/Provena.Api.IntegrationTests/EndpointInventoryTests.cs` |
 | CLI verification / live smoke | `scripts/verify.ps1`, `scripts/verify.sh`, `scripts/smoke.py` |
 | SDK / build / solution | `global.json`, `Directory.Build.props`, `Provena.sln`, each `.csproj` |
 | Local PostgreSQL only | `docker-compose.yml`, `.env.example` |
@@ -37,6 +39,6 @@ All paths below are repository-relative. One application project; two test proje
 
 `Directory.Build.props` sets net10.0, nullable, implicit usings, latest analysis and warnings as errors. SDK starts at 10.0.100 with `latestFeature` roll-forward. API references JWT bearer/Identity EF/OpenAPI/EF Design 10.0.12; Npgsql EF provider 10.0.3; FluentValidation DI 12.2.0; Scalar 2.17.14; NetTopologySuite 2.6.0; CsvHelper 33.1.0. These are archive values, not recommendations to upgrade/downgrade.
 
-Tests use xUnit 2.9.3 and Microsoft.NET.Test.Sdk 17.14.1. Integration adds MVC Testing 10.0.12 and Testcontainers.PostgreSql 4.7.0. `SSH.NET` 2026.0.0 is also referenced there, with no usage found in supplied test source. No lock file, CI workflow, Dockerfile or package-version management beyond the project files is supplied.
+Tests use xUnit 2.9.3 and Microsoft.NET.Test.Sdk 17.14.1. Integration adds Microsoft.AspNetCore.Mvc.Testing 10.0.12 (WebApplicationFactory; not MVC controllers) and Testcontainers.PostgreSql 4.7.0. `SSH.NET` 2026.0.0 is also referenced there, with no usage found in supplied test source. No lock file, CI workflow, Dockerfile or package-version management beyond the project files is supplied.
 
 For a small change, inspect one table row and its callers/tests first. Search more broadly only if those sources expose another dependency or contradict this map.

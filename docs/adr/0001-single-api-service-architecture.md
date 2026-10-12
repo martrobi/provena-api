@@ -11,7 +11,7 @@
 
 ## Recorded choice
 
-The baseline is a single deployable API with service-based orchestration and direct EF use. Routine AI work should follow that structure, per the owner's request not to redesign or add unnecessary abstractions. Revision note (2026-10-12): the second archive supplies the original persistence source. This corrects the earlier evidence gap without changing the recorded architecture.
+The baseline is a single deployable API with service-based orchestration and direct EF use. Routine AI work should follow that structure, per the owner's request not to redesign or add unnecessary abstractions. Revision note (2026-10-12): the second archive supplies the original persistence source. This corrects the earlier evidence gap without changing the recorded architecture. Revision note (2026-10-12, later): the HTTP entry layer described above as "Controllers" was replaced by feature-organized Minimal API endpoint modules per [ADR 0003](0003-minimal-api-http-layer.md). The single-API, service-orchestration and direct-EF choice recorded here is unchanged.
 
 ## Alternatives and consequences
 
