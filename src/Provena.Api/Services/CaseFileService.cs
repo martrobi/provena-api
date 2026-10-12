@@ -60,6 +60,18 @@ public sealed class CaseFileService(AppDbContext db, TenantContext tenant, CaseS
     { if (!await db.Cases.AnyAsync(x => x.Id == caseId, ct)) throw ApiException.NotFound(); return (await db.Documents.AsNoTracking().Current().Where(x => x.EudrCaseId == caseId).ToListAsync(ct)).Select(x => x.ToDto()).ToList(); }
     public async Task<GeoDto?> Geo(Guid caseId, CancellationToken ct)
     { if (!await db.Cases.AnyAsync(x => x.Id == caseId, ct)) throw ApiException.NotFound(); return (await db.Geolocations.AsNoTracking().Current().SingleOrDefaultAsync(x => x.EudrCaseId == caseId, ct))?.ToDto(); }
+    // Internal, read-only: every retained version of the case's evidence, newest first (unpaginated: pilot-scale assumption, see API.md). Tenant filter applies; a foreign or unknown case is 404.
+    public async Task<EvidenceHistory> History(Guid caseId, CancellationToken ct)
+    {
+        if (!await db.Cases.AnyAsync(x => x.Id == caseId, ct)) throw ApiException.NotFound();
+        var docs = await db.Documents.AsNoTracking().Where(x => x.EudrCaseId == caseId).OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id).ToListAsync(ct);
+        var geos = await db.Geolocations.AsNoTracking().Where(x => x.EudrCaseId == caseId).OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id).ToListAsync(ct);
+        var subs = await db.Submissions.AsNoTracking().Where(x => x.EudrCaseId == caseId).OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id).ToListAsync(ct);
+        return new(docs.Select(x => x.ToDto()).ToList(), geos.Select(x => x.ToDto()).ToList(), subs.Select(x => x.ToVersionDto()).ToList());
+    }
+    // Original bytes of any retained geometry version of this case (current or superseded).
+    public async Task<(Stream Stream, string FileName)> GeoFile(Guid caseId, Guid geolocationId, CancellationToken ct)
+    { var g = await db.Geolocations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == geolocationId && x.EudrCaseId == caseId, ct) ?? throw ApiException.NotFound(); return (await storage.OpenReadAsync(g.StorageKey, ct), g.OriginalFileName); }
     public async Task<(Stream Stream, string ContentType, string FileName)> Download(Guid caseId, Guid documentId, CancellationToken ct)
     { var d = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == documentId && x.EudrCaseId == caseId, ct) ?? throw ApiException.NotFound(); return (await storage.OpenReadAsync(d.StorageKey, ct), d.ContentType, d.OriginalFileName); }
     public async Task Delete(Guid caseId, Guid documentId, CancellationToken ct)

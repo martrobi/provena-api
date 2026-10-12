@@ -26,6 +26,9 @@ public sealed class RetainedEvidenceTests(ApiFactory factory)
     // The auth rate limiter is shared per fixture (10 requests / 5 minutes), so all tests in this class use one registered organization; each test creates its own case with unique references.
     private static Task<HttpClient>? sharedClient; private static readonly object SharedLock = new();
     private Task<HttpClient> Shared() { lock (SharedLock) return sharedClient ??= Register("Retained"); }
+    private static async Task<JsonElement> History(HttpClient client, Guid caseId) => await Json(await client.GetAsync($"/api/eudr-cases/{caseId}/evidence-history"));
+    private static Task<HttpClient>? sharedClientB;
+    private Task<HttpClient> SharedB() { lock (SharedLock) return sharedClientB ??= Register("RetainedB"); }
     private async Task<HttpClient> Register(string suffix)
     {
         var client = factory.CreateClient(); var email = $"{suffix}-{Guid.NewGuid():N}@example.test";
@@ -97,6 +100,9 @@ public sealed class RetainedEvidenceTests(ApiFactory factory)
         Assert.Null(docs.Single(x => x.Id == d2).WithdrawnAtUtc);
         var download = await a.GetAsync($"/api/eudr-cases/{caseId}/documents/{d1}");
         Assert.Equal(HttpStatusCode.OK, download.StatusCode); Assert.Equal("first", await download.Content.ReadAsStringAsync());
+        var afterFirstWithdraw = (await History(a, caseId)).GetProperty("documents").EnumerateArray().ToArray();
+        Assert.Equal([d2, d1], afterFirstWithdraw.Select(x => x.GetProperty("id").GetGuid()).ToArray());
+        Assert.Equal(JsonValueKind.Null, afterFirstWithdraw[0].GetProperty("withdrawnAtUtc").ValueKind); Assert.NotEqual(JsonValueKind.Null, afterFirstWithdraw[1].GetProperty("withdrawnAtUtc").ValueKind);
         Assert.Single(await Audit(caseId), e => e.EventType == "DocumentWithdrawn");
 
         // Repeat delete is an idempotent no-op; unknown ids stay 404.
@@ -122,6 +128,10 @@ public sealed class RetainedEvidenceTests(ApiFactory factory)
         Assert.Equal(0, manifest.GetProperty("retainedNotIncluded").GetProperty("supersededSupplierSubmissions").GetInt32());
 
         Assert.Equal(3, (await Rows(caseId)).Docs.Count);
+        var docHistory = (await History(a, caseId)).GetProperty("documents").EnumerateArray().ToArray();
+        Assert.Equal([d3, d2, d1], docHistory.Select(x => x.GetProperty("id").GetGuid()).ToArray());
+        Assert.Equal(JsonValueKind.Null, docHistory[0].GetProperty("withdrawnAtUtc").ValueKind);
+        Assert.All(docHistory.Skip(1), x => Assert.NotEqual(JsonValueKind.Null, x.GetProperty("withdrawnAtUtc").ValueKind));
         await AssertBytesRetained(caseId, new() { ["one.txt"] = "first", ["two.txt"] = "second", ["three.txt"] = "third" });
     }
 
@@ -147,6 +157,17 @@ public sealed class RetainedEvidenceTests(ApiFactory factory)
         Assert.Equal(v2, current.GetProperty("id").GetGuid()); Assert.Equal(JsonValueKind.Null, current.GetProperty("supersededAtUtc").ValueKind);
         Assert.Equal(v2, (await Json(await a.GetAsync($"/api/eudr-cases/{caseId}"))).GetProperty("geolocation").GetProperty("id").GetGuid());
 
+        var history = await History(a, caseId);
+        Assert.Equal([v2, v1], history.GetProperty("geolocations").EnumerateArray().Select(x => x.GetProperty("id").GetGuid()).ToArray());
+        Assert.Equal(JsonValueKind.Null, history.GetProperty("geolocations")[0].GetProperty("supersededAtUtc").ValueKind);
+        Assert.NotEqual(JsonValueKind.Null, history.GetProperty("geolocations")[1].GetProperty("supersededAtUtc").ValueKind);
+        foreach (var (id, expected) in new[] { (v1, GeoV1), (v2, GeoV2) })
+        {
+            var file = await a.GetAsync($"/api/eudr-cases/{caseId}/geolocation/{id}/file");
+            Assert.Equal(HttpStatusCode.OK, file.StatusCode); Assert.Equal(expected, await file.Content.ReadAsStringAsync());
+            Assert.Equal("application/geo+json", file.Content.Headers.ContentType?.MediaType); Assert.Equal("attachment", file.Content.Headers.ContentDisposition?.DispositionType);
+            Assert.Equal("nosniff", file.Headers.GetValues("X-Content-Type-Options").Single());
+        }
         var (_, geos, _) = await Rows(caseId);
         Assert.Equal(2, geos.Count);
         var first = geos.Single(x => x.Id == v1); var second = geos.Single(x => x.Id == v2);
@@ -188,6 +209,10 @@ public sealed class RetainedEvidenceTests(ApiFactory factory)
         Assert.Equal("third", (await Json(await a.GetAsync($"/api/eudr-cases/{caseId}"))).GetProperty("supplierSubmission").GetProperty("notes").GetString());
         Assert.Equal("third", (await Json(await publicClient.GetAsync(pathBase))).GetProperty("supplierSubmission").GetProperty("notes").GetString());
         Assert.Equal(3, (await Audit(caseId)).Count(e => e.EventType == "SupplierDetailsUpdated"));
+        var history = await History(a, caseId);
+        Assert.Equal(new string?[] { "third", "second", "first" }, history.GetProperty("supplierSubmissions").EnumerateArray().Select(x => x.GetProperty("notes").GetString()).ToArray());
+        Assert.Equal(2, history.GetProperty("supplierSubmissions").EnumerateArray().Count(x => x.GetProperty("supersededAtUtc").ValueKind != JsonValueKind.Null));
+        Assert.All(history.GetProperty("supplierSubmissions").EnumerateArray(), x => { Assert.NotEqual(JsonValueKind.Null, x.GetProperty("supplierRequestId").ValueKind); Assert.False(x.TryGetProperty("organizationId", out _)); });
     }
 
     [Fact]
@@ -209,6 +234,10 @@ public sealed class RetainedEvidenceTests(ApiFactory factory)
         Assert.Equal(2, subs.Count);
         Assert.Equal("accepted values", subs[0].Notes); Assert.NotNull(subs[0].SupersededAtUtc);
         Assert.Equal("changed values", subs[1].Notes); Assert.Null(subs[1].SupersededAtUtc);
+        var history = await History(a, caseId);
+        Assert.Equal(new string?[] { "changed values", "accepted values" }, history.GetProperty("supplierSubmissions").EnumerateArray().Select(x => x.GetProperty("notes").GetString()).ToArray());
+        Assert.Equal(JsonValueKind.Null, history.GetProperty("supplierSubmissions")[0].GetProperty("supersededAtUtc").ValueKind);
+        Assert.NotEqual(JsonValueKind.Null, history.GetProperty("supplierSubmissions")[1].GetProperty("supersededAtUtc").ValueKind);
     }
 
     [Fact]
@@ -257,5 +286,33 @@ public sealed class RetainedEvidenceTests(ApiFactory factory)
         // Changing evidence content in the same save as a retirement is also rejected.
         var third = await UploadDocument(a, caseId, "i.txt", "guard3");
         await Rejected(async db => { var d = await db.Documents.SingleAsync(x => x.Id == third); d.WithdrawnAtUtc = DateTimeOffset.UtcNow; d.StorageKey = "other"; });
+    }
+
+    [Fact]
+    public async Task History_and_version_file_routes_are_tenant_and_case_scoped()
+    {
+        var a = await Shared(); var b = await SharedB(); using var anonymous = factory.CreateClient();
+        var case1 = await SetupCase(a); var case2 = await SetupCase(a);
+        var doc1 = await UploadDocument(a, case1, "one.txt", "first"); await a.DeleteAsync($"/api/eudr-cases/{case1}/documents/{doc1}");
+        var geo1 = await UploadGeo(a, case1, "g1.geojson", GeoV1);
+        var doc2 = await UploadDocument(a, case2, "two.txt", "second"); var geo2 = await UploadGeo(a, case2, "g2.geojson", GeoV2);
+
+        // The owning tenant sees the withdrawn document and the geometry; case 1's history contains none of case 2's evidence.
+        var history = await History(a, case1);
+        Assert.Equal([doc1], history.GetProperty("documents").EnumerateArray().Select(x => x.GetProperty("id").GetGuid()).ToArray());
+        Assert.Equal([geo1], history.GetProperty("geolocations").EnumerateArray().Select(x => x.GetProperty("id").GetGuid()).ToArray());
+        Assert.Empty(history.GetProperty("supplierSubmissions").EnumerateArray());
+
+        // Another organization: 404 for the history, the geometry file, and the withdrawn document download.
+        foreach (var path in new[] { $"/api/eudr-cases/{case1}/evidence-history", $"/api/eudr-cases/{case1}/geolocation/{geo1}/file", $"/api/eudr-cases/{case1}/documents/{doc1}" })
+            Assert.Equal(HttpStatusCode.NotFound, (await b.GetAsync(path)).StatusCode);
+        // Same tenant, wrong case or unknown id: 404.
+        Assert.Equal(HttpStatusCode.NotFound, (await a.GetAsync($"/api/eudr-cases/{case1}/geolocation/{geo2}/file")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await a.GetAsync($"/api/eudr-cases/{case1}/documents/{doc2}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await a.GetAsync($"/api/eudr-cases/{case1}/geolocation/{Guid.NewGuid()}/file")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await a.GetAsync($"/api/eudr-cases/{Guid.NewGuid()}/evidence-history")).StatusCode);
+        // Anonymous: 401.
+        foreach (var path in new[] { $"/api/eudr-cases/{case1}/evidence-history", $"/api/eudr-cases/{case1}/geolocation/{geo1}/file" })
+            Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(path)).StatusCode);
     }
 }

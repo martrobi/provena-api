@@ -11,7 +11,7 @@ Authoritative source: the Minimal API modules in `src/Provena.Api/Endpoints/` (r
 | Shipments/ShipmentEndpoints, Cases/DashboardEndpoints | GET/POST `/api/shipments`; GET/PUT/DELETE `/api/shipments/{id}` (DELETE archives case); GET `/api/dashboard` |
 | Cases/CaseEndpoints | GET `/api/eudr-cases`; GET `/{id}`; PATCH `/{caseId}/requirements/{requirementId}`; POST `/{caseId}/supplier-request`; POST `/{caseId}/complete`; GET `/{caseId}/export` |
 | SupplierRequests/SupplierRequestEndpoints | POST `/api/supplier-requests/{id}/revoke` and `/regenerate` |
-| Cases/CaseFileEndpoints | GET/POST `/api/eudr-cases/{caseId}/documents`; GET/DELETE `/documents/{documentId}`; POST/GET `/geolocation` (see "Retained evidence" below: DELETE withdraws, geometry upload supersedes) |
+| Cases/CaseFileEndpoints | GET/POST `/api/eudr-cases/{caseId}/documents`; GET/DELETE `/documents/{documentId}`; POST/GET `/geolocation`; GET `/geolocation/{geolocationId}/file`; GET `/evidence-history` (see "Retained evidence" below: DELETE withdraws, geometry upload supersedes) |
 | Imports/ImportEndpoints | POST `/api/import/suppliers`, `/products`, `/shipments` |
 | SupplierRequests/PublicSupplierEndpoints | GET `/public/supplier-requests/{token}`; PUT `/details`; POST `/documents`, `/geolocation`, `/complete` |
 
@@ -36,7 +36,8 @@ Evidence is append-only ([ADR 0005](adr/0005-retained-evidence-append-only-rows.
 - `DocumentDto.withdrawnAtUtc` and `GeoDto.supersededAtUtc` are additive (null in current-only responses). `CaseDetails.supplierSubmission` gains `supersededAtUtc` and `supplierRequestId`.
 - Every geometry upload and every public `PUT .../details` creates a new row, so `GeoDto.id` and `supplierSubmission.id` change on each replacement/save (they were stable before).
 - The export ZIP contains current evidence only. `manifest.json` gains `evidenceScope` (a notice that it is not a reviewed dossier snapshot) and `retainedNotIncluded` `{ withdrawnDocuments, supersededGeolocations, supersededSupplierSubmissions }`.
-- No history read endpoint exists yet; retained versions are not exposed through the API in this change.
+- `GET /api/eudr-cases/{caseId}/evidence-history` returns every retained version, newest first (`createdAtUtc` desc, then `id` desc): `{ documents: DocumentDto[], geolocations: GeoDto[], supplierSubmissions: SupplierSubmissionVersionDto[] }`. Documents carry `withdrawnAtUtc`, geolocations and submissions carry `supersededAtUtc`; the current version is the one where that field is null. `SupplierSubmissionVersionDto`: `id`, `countryOfProductionCode`, `productionPeriodFrom`, `productionPeriodTo`, `confirmedQuantity`, `notes`, `submittedAtUtc`, `supersededAtUtc`, `supplierRequestId`, `createdAtUtc` (no `organizationId`). **Unpaginated by design** as an approved pilot-scale assumption; this is not a permanent guarantee that retained history stays small, and pagination may be introduced later as a contract change.
+- `GET /api/eudr-cases/{caseId}/geolocation/{geolocationId}/file` returns the original bytes of any retained geometry version of that case (`application/geo+json`, attachment named with the original file name, `nosniff`). Both routes are internal, authenticated and tenant/case scoped: unknown, other-organization or other-case ids return 404, anonymous callers 401. There are no public token history routes.
 
 ## Errors
 

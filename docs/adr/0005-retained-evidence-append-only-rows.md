@@ -2,7 +2,7 @@
 
 - Date: 2026-10-13
 - Decision status: Accepted
-- Implementation status: Partial (write paths implemented; internal history read API is a separate commit)
+- Implementation status: Implemented (write paths and the internal history read API)
 - Decision owner / approval evidence: Owner approval of `docs/plans/2026-10-retained-evidence-foundation.md` (2026-10-13), with owner answers: minimal history read API, export contains current evidence only plus a scope notice, review-decision history deferred, no erasure path in the pilot (recorded as an open legal item).
 - Supersedes / superseded by: none.
 

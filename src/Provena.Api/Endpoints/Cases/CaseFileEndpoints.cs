@@ -16,6 +16,8 @@ internal static class CaseFileEndpoints
         group.MapDelete("/documents/{documentId:guid}", Delete);
         group.MapPost("/geolocation", GeoUpload);
         group.MapGet("/geolocation", Geo);
+        group.MapGet("/geolocation/{geolocationId:guid}/file", GeoFile);
+        group.MapGet("/evidence-history", History);
     }
     // Missing category keeps the previous default (SupportingDocument); undefined values are rejected by the service.
     private static async Task<Ok<object>> Upload(Guid caseId, IFormFile file, [FromForm] string? category, CaseFileService service, CancellationToken ct)
@@ -30,4 +32,8 @@ internal static class CaseFileEndpoints
     // No geolocation yet is 204, as before.
     private static async Task<Results<Ok<GeoDto>, NoContent>> Geo(Guid caseId, CaseFileService service, CancellationToken ct)
         => await service.Geo(caseId, ct) is { } geo ? TypedResults.Ok(geo) : TypedResults.NoContent();
+    // Internal read-only retained-evidence history (no public token equivalent).
+    private static async Task<Ok<EvidenceHistory>> History(Guid caseId, CaseFileService service, CancellationToken ct) => TypedResults.Ok(await service.History(caseId, ct));
+    private static async Task<FileStreamHttpResult> GeoFile(Guid caseId, Guid geolocationId, HttpResponse response, CaseFileService service, CancellationToken ct)
+    { var g = await service.GeoFile(caseId, geolocationId, ct); response.Headers["X-Content-Type-Options"] = "nosniff"; return TypedResults.File(g.Stream, "application/geo+json", g.FileName); }
 }

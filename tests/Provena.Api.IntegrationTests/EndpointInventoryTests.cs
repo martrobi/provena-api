@@ -33,6 +33,7 @@ public sealed class EndpointInventoryTests(ApiFactory factory)
         new("GET", "api/eudr-cases/{caseId:guid}/documents/{documentId:guid}", Access.Authenticated, UploadLimits: true),
         new("DELETE", "api/eudr-cases/{caseId:guid}/documents/{documentId:guid}", Access.Authenticated, UploadLimits: true),
         new("POST", "api/eudr-cases/{caseId:guid}/geolocation", Access.Authenticated, UploadLimits: true), new("GET", "api/eudr-cases/{caseId:guid}/geolocation", Access.Authenticated, UploadLimits: true),
+        new("GET", "api/eudr-cases/{caseId:guid}/geolocation/{geolocationId:guid}/file", Access.Authenticated, UploadLimits: true), new("GET", "api/eudr-cases/{caseId:guid}/evidence-history", Access.Authenticated, UploadLimits: true),
         new("POST", "api/import/suppliers", Access.Authenticated, UploadLimits: true), new("POST", "api/import/products", Access.Authenticated, UploadLimits: true),
         new("POST", "api/import/shipments", Access.Authenticated, UploadLimits: true),
         new("GET", "public/supplier-requests/{token}", Access.Anonymous, "supplier", true), new("PUT", "public/supplier-requests/{token}/details", Access.Anonymous, "supplier", true),

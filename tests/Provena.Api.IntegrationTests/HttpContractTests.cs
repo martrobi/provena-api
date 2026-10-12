@@ -238,6 +238,8 @@ public sealed class HttpContractTests(ApiFactory factory)
         var (a, b) = await Tenants(); var caseId = await Case(a); using var anonymous = factory.CreateClient();
         using (var doc = Upload("declaration.txt", "text/plain", "Supplier declaration")) await Json(await a.PostAsync($"/api/eudr-cases/{caseId}/documents", doc));
         var documentId = (await Json(await a.GetAsync($"/api/eudr-cases/{caseId}/documents")))[0].GetProperty("id").GetGuid();
+        using (var geoFile = Upload("plot.geojson", "application/geo+json", """{"type":"Polygon","coordinates":[[[-48,-20],[-47,-20],[-47,-19],[-48,-20]]]}""")) await Json(await a.PostAsync($"/api/eudr-cases/{caseId}/geolocation", geoFile));
+        var geoId = (await Json(await a.GetAsync($"/api/eudr-cases/{caseId}/geolocation"))).GetProperty("id").GetGuid();
         var id = Guid.NewGuid();
         var requests = new (HttpMethod Method, string Path)[]
         {
@@ -247,10 +249,11 @@ public sealed class HttpContractTests(ApiFactory factory)
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/documents"), (HttpMethod.Post, $"/api/eudr-cases/{caseId}/documents"),
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/documents/{documentId}"), (HttpMethod.Delete, $"/api/eudr-cases/{caseId}/documents/{documentId}"),
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/geolocation"), (HttpMethod.Post, "/api/import/suppliers"),
+            (HttpMethod.Get, $"/api/eudr-cases/{caseId}/evidence-history"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/geolocation/{geoId}/file"),
         };
         foreach (var (method, path) in requests)
             Assert.True(HttpStatusCode.Unauthorized == (await anonymous.SendAsync(new HttpRequestMessage(method, path))).StatusCode, $"{method} {path}");
-        foreach (var path in new[] { $"/api/eudr-cases/{caseId}/documents", $"/api/eudr-cases/{caseId}/documents/{documentId}", $"/api/eudr-cases/{caseId}/geolocation" })
+        foreach (var path in new[] { $"/api/eudr-cases/{caseId}/documents", $"/api/eudr-cases/{caseId}/documents/{documentId}", $"/api/eudr-cases/{caseId}/geolocation", $"/api/eudr-cases/{caseId}/evidence-history", $"/api/eudr-cases/{caseId}/geolocation/{geoId}/file" })
             await Problem(await b.GetAsync(path), HttpStatusCode.NotFound);
         await Problem(await b.DeleteAsync($"/api/eudr-cases/{caseId}/documents/{documentId}"), HttpStatusCode.NotFound);
         using (var foreign = Upload("x.txt", "text/plain", "x")) await Problem(await b.PostAsync($"/api/eudr-cases/{caseId}/documents", foreign), HttpStatusCode.NotFound);
@@ -304,12 +307,12 @@ public sealed class HttpContractTests(ApiFactory factory)
             "/api/shipments", "/api/shipments/{id}", "/api/eudr-cases", "/api/eudr-cases/{id}", "/api/eudr-cases/{caseId}/requirements/{requirementId}",
             "/api/eudr-cases/{caseId}/supplier-request", "/api/eudr-cases/{caseId}/complete", "/api/eudr-cases/{caseId}/export", "/api/dashboard",
             "/api/supplier-requests/{id}/revoke", "/api/supplier-requests/{id}/regenerate", "/api/eudr-cases/{caseId}/documents",
-            "/api/eudr-cases/{caseId}/documents/{documentId}", "/api/eudr-cases/{caseId}/geolocation", "/api/import/suppliers", "/api/import/products",
+            "/api/eudr-cases/{caseId}/documents/{documentId}", "/api/eudr-cases/{caseId}/geolocation", "/api/eudr-cases/{caseId}/evidence-history", "/api/eudr-cases/{caseId}/geolocation/{geolocationId}/file", "/api/import/suppliers", "/api/import/products",
             "/api/import/shipments", "/public/supplier-requests/{token}", "/public/supplier-requests/{token}/details", "/public/supplier-requests/{token}/documents",
             "/public/supplier-requests/{token}/geolocation", "/public/supplier-requests/{token}/complete",
         })
             Assert.Contains(path, paths);
-        Assert.Equal(29, paths.Count);
+        Assert.Equal(31, paths.Count);
         var login = document.GetProperty("paths").GetProperty("/api/auth/login").GetProperty("post");
         Assert.False(login.TryGetProperty("security", out _));
         Assert.True(document.GetProperty("paths").GetProperty("/api/suppliers").GetProperty("get").TryGetProperty("security", out _));
