@@ -16,6 +16,10 @@ public sealed class CaseDocument : TenantEntity
     public string StorageKey { get; set; } = "";
     public UploadedByType UploadedByType { get; set; }
     public DateTimeOffset UploadedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+    public Guid? UploadedByUserId { get; set; }
+    // One-way retirement marker: set when an internal user withdraws the document from the current dossier. Row and bytes are retained.
+    public DateTimeOffset? WithdrawnAtUtc { get; set; }
+    public Guid? WithdrawnByUserId { get; set; }
 }
 
 public enum GeoValidationStatus { Valid, Invalid }
@@ -32,4 +36,7 @@ public sealed class GeoSubmission : TenantEntity
     public GeoValidationStatus ValidationStatus { get; set; }
     public string? ValidationMessage { get; set; }
     public DateTimeOffset UploadedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+    public Guid? UploadedByUserId { get; set; }
+    // One-way retirement marker: set when a newer geometry replaces this one. Row and bytes are retained.
+    public DateTimeOffset? SupersededAtUtc { get; set; }
 }

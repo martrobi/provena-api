@@ -24,7 +24,7 @@ public sealed class CaseFileService(AppDbContext db, TenantContext tenant, CaseS
         SupplierRequest? request = null; EudrCase c;
         if (token != null) { (request, c) = await requests.LockPublic(token, ct); }
         else { c = await cases.Lock(caseId!.Value, ct); CaseService.EnsureEditable(c); }
-        FileStorageResult? saved = null; string? obsoleteKey = null;
+        FileStorageResult? saved = null; var commitAttempted = false;
         try
         {
             await using var input = file.OpenReadStream(); saved = await storage.SaveAsync(input, extension, ct);
@@ -32,38 +32,46 @@ public sealed class CaseFileService(AppDbContext db, TenantContext tenant, CaseS
             var originalName = Path.GetFileName(file.FileName.Replace('\\', '/'));
             if (geo)
             {
-                var g = await db.Geolocations.SingleOrDefaultAsync(x => x.EudrCaseId == c.Id, ct);
-                if (g == null) { g = new GeoSubmission { OrganizationId = tenant.OrganizationId, EudrCaseId = c.Id }; db.Geolocations.Add(g); }
-                else obsoleteKey = g.StorageKey;
-                g.OriginalFileName = originalName; g.StorageKey = saved.StorageKey; g.RawGeoJson = validation!.NormalizedJson; g.FeatureCount = validation.FeatureCount;
-                g.GeometryTypes = validation.GeometryTypes; g.ValidationStatus = GeoValidationStatus.Valid; g.UploadedAtUtc = DateTimeOffset.UtcNow; g.SupplierRequestId = request?.Id;
+                // Append-only: retire the current geometry (row and bytes are retained), then insert the new one. The retirement is saved first so the partial unique index is never violated.
+                var previous = await db.Geolocations.Current().SingleOrDefaultAsync(x => x.EudrCaseId == c.Id, ct);
+                if (previous != null) { previous.SupersededAtUtc = DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct); }
+                var g = new GeoSubmission
+                {
+                    OrganizationId = tenant.OrganizationId, EudrCaseId = c.Id, OriginalFileName = originalName, StorageKey = saved.StorageKey, RawGeoJson = validation!.NormalizedJson,
+                    FeatureCount = validation.FeatureCount, GeometryTypes = validation.GeometryTypes, ValidationStatus = GeoValidationStatus.Valid, UploadedAtUtc = DateTimeOffset.UtcNow,
+                    SupplierRequestId = request?.Id, UploadedByUserId = request == null ? tenant.UserId : null
+                };
+                db.Geolocations.Add(g);
                 await requests.SetRequirement(c.Id, RequirementType.Geolocation, true, ct); audit.Add(c.Id, "GeoJsonUploaded", "Valid GeoJSON uploaded.", request?.Id); result = g.ToDto();
             }
             else
             {
-                var d = new CaseDocument { OrganizationId = tenant.OrganizationId, EudrCaseId = c.Id, SupplierRequestId = request?.Id, OriginalFileName = originalName, StoredFileName = saved.StoredFileName, StorageKey = saved.StorageKey, ContentType = file.ContentType.Split(';')[0], SizeBytes = saved.SizeBytes, Category = category, UploadedByType = request == null ? UploadedByType.InternalUser : UploadedByType.Supplier };
+                var d = new CaseDocument { OrganizationId = tenant.OrganizationId, EudrCaseId = c.Id, SupplierRequestId = request?.Id, OriginalFileName = originalName, StoredFileName = saved.StoredFileName, StorageKey = saved.StorageKey, ContentType = file.ContentType.Split(';')[0], SizeBytes = saved.SizeBytes, Category = category, UploadedByType = request == null ? UploadedByType.InternalUser : UploadedByType.Supplier, UploadedByUserId = request == null ? tenant.UserId : null };
                 db.Documents.Add(d); await requests.SetRequirement(c.Id, RequirementType.SupportingDocuments, true, ct); audit.Add(c.Id, "DocumentUploaded", $"Document {d.Id} uploaded ({d.SizeBytes} bytes).", request?.Id); result = d.ToDto();
             }
             if (request != null) { request.CompletedAtUtc = null; c.SupplierSubmissionCompletedAtUtc = null; }
-            await statuses.Recalculate(c, ct); await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
-            if (obsoleteKey != null) await TryDelete(obsoleteKey);
+            await statuses.Recalculate(c, ct); await db.SaveChangesAsync(ct); commitAttempted = true; await tx.CommitAsync(ct);
             return result;
         }
-        catch { if (saved != null) await TryDelete(saved.StorageKey); throw; }
+        // Cleanup only for failures before the commit was attempted. After that the outcome may be ambiguous (the server could have committed), so bytes are kept: orphaned bytes are safer than deleting committed evidence.
+        catch { if (saved != null && !commitAttempted) await TryDelete(saved.StorageKey); throw; }
     }
     public async Task<List<DocumentDto>> List(Guid caseId, CancellationToken ct)
-    { if (!await db.Cases.AnyAsync(x => x.Id == caseId, ct)) throw ApiException.NotFound(); return (await db.Documents.AsNoTracking().Where(x => x.EudrCaseId == caseId).ToListAsync(ct)).Select(x => x.ToDto()).ToList(); }
+    { if (!await db.Cases.AnyAsync(x => x.Id == caseId, ct)) throw ApiException.NotFound(); return (await db.Documents.AsNoTracking().Current().Where(x => x.EudrCaseId == caseId).ToListAsync(ct)).Select(x => x.ToDto()).ToList(); }
     public async Task<GeoDto?> Geo(Guid caseId, CancellationToken ct)
-    { if (!await db.Cases.AnyAsync(x => x.Id == caseId, ct)) throw ApiException.NotFound(); return (await db.Geolocations.AsNoTracking().SingleOrDefaultAsync(x => x.EudrCaseId == caseId, ct))?.ToDto(); }
+    { if (!await db.Cases.AnyAsync(x => x.Id == caseId, ct)) throw ApiException.NotFound(); return (await db.Geolocations.AsNoTracking().Current().SingleOrDefaultAsync(x => x.EudrCaseId == caseId, ct))?.ToDto(); }
     public async Task<(Stream Stream, string ContentType, string FileName)> Download(Guid caseId, Guid documentId, CancellationToken ct)
     { var d = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == documentId && x.EudrCaseId == caseId, ct) ?? throw ApiException.NotFound(); return (await storage.OpenReadAsync(d.StorageKey, ct), d.ContentType, d.OriginalFileName); }
     public async Task Delete(Guid caseId, Guid documentId, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct); var c = await cases.Lock(caseId, ct); CaseService.EnsureEditable(c);
         var d = await db.Documents.SingleOrDefaultAsync(x => x.Id == documentId && x.EudrCaseId == caseId, ct) ?? throw ApiException.NotFound();
-        db.Documents.Remove(d); var hasOther = await db.Documents.AnyAsync(x => x.EudrCaseId == caseId && x.Id != documentId, ct);
+        if (d.WithdrawnAtUtc != null) return; // Already withdrawn: idempotent no-op (no audit event, no requirement change).
+        // Withdrawal, not deletion: the row and the stored bytes are retained as evidence.
+        d.WithdrawnAtUtc = DateTimeOffset.UtcNow; d.WithdrawnByUserId = tenant.UserId;
+        var hasOther = await db.Documents.Current().AnyAsync(x => x.EudrCaseId == caseId && x.Id != documentId, ct);
         await requests.SetRequirement(caseId, RequirementType.SupportingDocuments, hasOther, ct);
-        audit.Add(caseId, "DocumentDeleted", $"Document {documentId} deleted."); await statuses.Recalculate(c, ct); await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); await TryDelete(d.StorageKey);
+        audit.Add(caseId, "DocumentWithdrawn", $"Document {documentId} withdrawn from the current dossier; file retained."); await statuses.Recalculate(c, ct); await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
     }
     private async Task TryDelete(string key)
     { try { await storage.DeleteAsync(key, CancellationToken.None); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { logger.LogError("File cleanup failed for generated key {StorageKey}", key); } }

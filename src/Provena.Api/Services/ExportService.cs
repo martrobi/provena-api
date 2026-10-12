@@ -19,8 +19,11 @@ public sealed class ExportService(AppDbContext db, CaseService cases, IFileStora
         await db.SaveChangesAsync(ct);
         var details = await cases.Details(id, ct);
         var org = await db.Organizations.AsNoTracking().SingleAsync(x => x.Id == c.OrganizationId, ct);
-        var docs = await db.Documents.AsNoTracking().Where(x => x.EudrCaseId == id).ToListAsync(ct);
-        var geo = await db.Geolocations.AsNoTracking().SingleOrDefaultAsync(x => x.EudrCaseId == id, ct);
+        var docs = await db.Documents.AsNoTracking().Current().Where(x => x.EudrCaseId == id).ToListAsync(ct);
+        var geo = await db.Geolocations.AsNoTracking().Current().SingleOrDefaultAsync(x => x.EudrCaseId == id, ct);
+        var withdrawnDocuments = await db.Documents.CountAsync(x => x.EudrCaseId == id && x.WithdrawnAtUtc != null, ct);
+        var supersededGeolocations = await db.Geolocations.CountAsync(x => x.EudrCaseId == id && x.SupersededAtUtc != null, ct);
+        var supersededSupplierSubmissions = await db.Submissions.CountAsync(x => x.EudrCaseId == id && x.SupersededAtUtc != null, ct);
         var reference = SafeName(details.Shipment.ReferenceNumber);
         // Disk-backed temporary stream avoids loading the entire package into RAM.
         var temp = Path.Combine(Path.GetTempPath(), $"provena-{Guid.NewGuid():N}.zip");
@@ -42,7 +45,9 @@ public sealed class ExportService(AppDbContext db, CaseService cases, IFileStora
                         createdAtUtc = details.CreatedAtUtc, updatedAtUtc = details.UpdatedAtUtc,
                         completedAtUtc = details.CompletedAtUtc, auditEvents = details.AuditEvents,
                         exportedAtUtc = DateTimeOffset.UtcNow,
-                        notice = "Operational documentation only. ReadyForExport is not a legal EUDR compliance determination."
+                        notice = "Operational documentation only. ReadyForExport is not a legal EUDR compliance determination.",
+                        evidenceScope = "Current working evidence at export time. This is not a reviewed dossier snapshot; withdrawn or superseded versions are retained in Provena and are not included.",
+                        retainedNotIncluded = new { withdrawnDocuments, supersededGeolocations, supersededSupplierSubmissions }
                     }, Json, ct);
                 var summary = zip.CreateEntry(prefix + "summary.csv");
                 await using (var writer = new StreamWriter(summary.Open(), new UTF8Encoding(true)))

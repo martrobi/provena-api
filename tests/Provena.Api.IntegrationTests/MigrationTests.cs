@@ -67,4 +67,94 @@ public sealed class MigrationTests : IAsyncLifetime
         var names = await db.Database.SqlQueryRaw<string>("""SELECT "Name" AS "Value" FROM "Organizations" """).ToListAsync();
         Assert.Equal(["Upgrade Org"], names);
     }
+
+    private const string EmptyJson = "[]"; // Any valid jsonb; avoids braces, which ExecuteSqlRawAsync treats as format placeholders.
+    private const string LatestMigration = "20261012225511_RetainedEvidence";
+    private sealed record SeededCase(Guid OrganizationId, Guid CaseId, Guid GeoId);
+
+#pragma warning disable EF1002 // Test-only SQL built from locally generated GUIDs and constants; no external input.
+    // Inserts a minimal org/supplier/product/shipment/case plus one document, geolocation and submission by SQL, valid at the InitialCreate schema.
+    private static async Task<SeededCase> SeedEvidenceAtInitialSchema(AppDbContext db)
+    {
+        Guid org = Guid.NewGuid(), supplier = Guid.NewGuid(), product = Guid.NewGuid(), shipment = Guid.NewGuid(), eudrCase = Guid.NewGuid(), geo = Guid.NewGuid();
+        await db.Database.ExecuteSqlRawAsync($"""
+INSERT INTO "Organizations" ("Id","CreatedAtUtc","UpdatedAtUtc","Name") VALUES ('{org}', now(), now(), 'Evidence Org');
+INSERT INTO "Suppliers" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","Name") VALUES ('{supplier}', now(), now(), '{org}', 'Supplier');
+INSERT INTO "Products" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","Name","CnCode","CommodityType","IsActive") VALUES ('{product}', now(), now(), '{org}', 'Product', '1801', 0, true);
+INSERT INTO "Shipments" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","ReferenceNumber","SupplierId","ProductId","Quantity","Unit") VALUES ('{shipment}', now(), now(), '{org}', 'SHP-1', '{supplier}', '{product}', 1, 0);
+INSERT INTO "Cases" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","ShipmentId","Status") VALUES ('{eudrCase}', now(), now(), '{org}', '{shipment}', 0);
+INSERT INTO "Documents" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","OriginalFileName","StoredFileName","ContentType","SizeBytes","Category","StorageKey","UploadedByType","UploadedAtUtc") VALUES ('{Guid.NewGuid()}', now(), now(), '{org}', '{eudrCase}', 'a.pdf', 'a.pdf', 'application/pdf', 1, 0, 'key-a', 0, now());
+INSERT INTO "Geolocations" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","OriginalFileName","StorageKey","RawGeoJson","FeatureCount","GeometryTypes","ValidationStatus","UploadedAtUtc") VALUES ('{geo}', now(), now(), '{org}', '{eudrCase}', 'g.geojson', 'key-g', '{EmptyJson}', 1, 'Polygon', 0, now());
+INSERT INTO "Submissions" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId") VALUES ('{Guid.NewGuid()}', now(), now(), '{org}', '{eudrCase}');
+""");
+        return new(org, eudrCase, geo);
+    }
+
+    private static Task InsertGeolocation(AppDbContext db, SeededCase seed, bool superseded) => db.Database.ExecuteSqlRawAsync($"""
+INSERT INTO "Geolocations" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","OriginalFileName","StorageKey","RawGeoJson","FeatureCount","GeometryTypes","ValidationStatus","UploadedAtUtc","SupersededAtUtc")
+VALUES ('{Guid.NewGuid()}', now(), now(), '{seed.OrganizationId}', '{seed.CaseId}', 'g2.geojson', 'key-g2', '{EmptyJson}', 1, 'Polygon', 0, now(), {(superseded ? "now()" : "NULL")});
+""");
+
+#pragma warning restore EF1002
+
+    [Fact]
+    public async Task Clean_database_has_partial_unique_current_version_indexes()
+    {
+        await using var db = NewContext();
+        await db.Database.MigrateAsync();
+        foreach (var index in new[] { "IX_Geolocations_EudrCaseId", "IX_Submissions_EudrCaseId" })
+        {
+            var def = await db.Database.SqlQueryRaw<string>("SELECT indexdef AS \"Value\" FROM pg_indexes WHERE indexname = {0}", index).SingleAsync();
+            Assert.Contains("UNIQUE", def);
+            Assert.Contains("SupersededAtUtc\" IS NULL", def);
+        }
+    }
+
+    [Fact]
+    public async Task Upgrade_keeps_existing_evidence_as_current_with_null_new_columns_and_enforces_one_current_geometry()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.Database.MigrateAsync();
+
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM "Documents" WHERE "WithdrawnAtUtc" IS NULL AND "WithdrawnByUserId" IS NULL AND "UploadedByUserId" IS NULL""").SingleAsync());
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM "Geolocations" WHERE "SupersededAtUtc" IS NULL AND "UploadedByUserId" IS NULL""").SingleAsync());
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM "Submissions" WHERE "SupersededAtUtc" IS NULL AND "SupplierRequestId" IS NULL""").SingleAsync());
+
+        var duplicate = await Assert.ThrowsAnyAsync<Exception>(() => InsertGeolocation(db, seed, superseded: false));
+        Assert.Contains("IX_Geolocations_EudrCaseId", duplicate.ToString());
+        await InsertGeolocation(db, seed, superseded: true);
+    }
+
+    [Fact]
+    public async Task Down_is_refused_while_retained_versions_exist_and_leaves_schema_and_rows_intact()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.Database.MigrateAsync();
+        await InsertGeolocation(db, seed, superseded: true);
+
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => db.GetService<IMigrator>().MigrateAsync(InitialMigration));
+        Assert.Contains("Retained evidence versions exist; rollback would destroy history", failure.ToString());
+
+        Assert.Contains(LatestMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Equal(2, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM "Geolocations" """).SingleAsync());
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM "Geolocations" WHERE "SupersededAtUtc" IS NOT NULL""").SingleAsync());
+    }
+
+    [Fact]
+    public async Task Down_succeeds_when_no_retained_versions_exist()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        await SeedEvidenceAtInitialSchema(db);
+        await db.Database.MigrateAsync();
+
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+
+        Assert.Equal([InitialMigration], (await db.Database.GetAppliedMigrationsAsync()).ToArray());
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM "Geolocations" """).SingleAsync());
+    }
 }

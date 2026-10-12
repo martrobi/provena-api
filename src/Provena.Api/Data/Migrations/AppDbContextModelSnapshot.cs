@@ -247,10 +247,12 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<decimal?>("ConfirmedQuantity").HasPrecision(20, 6).HasColumnType("numeric(20,6)");
             b.Property<string>("Notes").HasMaxLength(4000).HasColumnType("character varying(4000)");
             b.Property<DateTimeOffset?>("SubmittedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid?>("SupplierRequestId").HasColumnType("uuid");
+            b.Property<DateTimeOffset?>("SupersededAtUtc").HasColumnType("timestamp with time zone");
             b.HasKey("Id");
             b.HasAlternateKey("OrganizationId", "Id");
             b.HasIndex("OrganizationId", "EudrCaseId").HasDatabaseName("IX_Submissions_OrganizationId_EudrCaseId");
-            b.HasIndex("EudrCaseId").IsUnique().HasDatabaseName("IX_Submissions_EudrCaseId");
+            b.HasIndex("EudrCaseId").IsUnique().HasDatabaseName("IX_Submissions_EudrCaseId").HasFilter("\"SupersededAtUtc\" IS NULL");
             b.ToTable("Submissions", (string?)null);
         });
         modelBuilder.Entity("Provena.Api.Domain.CaseDocument", b =>
@@ -269,6 +271,9 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<string>("StorageKey").IsRequired().HasMaxLength(4000).HasColumnType("character varying(4000)");
             b.Property<int>("UploadedByType").HasColumnType("integer");
             b.Property<DateTimeOffset>("UploadedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid?>("UploadedByUserId").HasColumnType("uuid");
+            b.Property<DateTimeOffset?>("WithdrawnAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid?>("WithdrawnByUserId").HasColumnType("uuid");
             b.HasKey("Id");
             b.HasAlternateKey("OrganizationId", "Id");
             b.HasIndex("OrganizationId", "EudrCaseId").HasDatabaseName("IX_Documents_OrganizationId_EudrCaseId");
@@ -290,10 +295,12 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<int>("ValidationStatus").HasColumnType("integer");
             b.Property<string>("ValidationMessage").HasMaxLength(4000).HasColumnType("character varying(4000)");
             b.Property<DateTimeOffset>("UploadedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid?>("UploadedByUserId").HasColumnType("uuid");
+            b.Property<DateTimeOffset?>("SupersededAtUtc").HasColumnType("timestamp with time zone");
             b.HasKey("Id");
             b.HasAlternateKey("OrganizationId", "Id");
             b.HasIndex("OrganizationId", "EudrCaseId").HasDatabaseName("IX_Geolocations_OrganizationId_EudrCaseId");
-            b.HasIndex("EudrCaseId").IsUnique().HasDatabaseName("IX_Geolocations_EudrCaseId");
+            b.HasIndex("EudrCaseId").IsUnique().HasDatabaseName("IX_Geolocations_EudrCaseId").HasFilter("\"SupersededAtUtc\" IS NULL");
             b.ToTable("Geolocations", (string?)null);
         });
         modelBuilder.Entity("Provena.Api.Domain.AuditEvent", b =>

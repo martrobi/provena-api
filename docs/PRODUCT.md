@@ -17,6 +17,6 @@ Other implemented source paths include supplier/product/shipment CSV imports, pa
 
 ## Not implemented / not promised
 
-No frontend is included here. No real email delivery, invitations, organization switching, refresh-token workflow, background worker or production hosting configuration is supplied. Multi-product shipment lines, producer/plot attribution and historical evidence versioning are not modeled. Do not add these implicitly while implementing smaller work.
+No frontend is included here. No real email delivery, invitations, organization switching, refresh-token workflow, background worker or production hosting configuration is supplied. Multi-product shipment lines, producer/plot attribution and reviewed dossier snapshots are not modeled (evidence versions are retained as withdrawn/superseded rows, but not yet exposed as history or snapshotted). Do not add these implicitly while implementing smaller work.
 
 Use [API](API.md) for contracts, [EUDR_DOMAIN](EUDR_DOMAIN.md) for state semantics and [AI_DISCOVERY_REPORT](AI_DISCOVERY_REPORT.md) for prioritized gaps. This document is not a legal specification or a statement of current regulatory deadlines.

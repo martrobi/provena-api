@@ -69,9 +69,9 @@ public sealed class SupplierRequestService(AppDbContext db, TenantContext tenant
         var org = await db.Organizations.SingleAsync(x => x.Id == r.OrganizationId, ct);
         var requirements = await db.Requirements.Where(x => x.EudrCaseId == c.Id).OrderBy(x => x.Type)
             .Select(x => new { x.Id, x.Type, x.Title, x.IsRequired, x.Status }).ToListAsync(ct);
-        var submission = await db.Submissions.Where(x => x.EudrCaseId == c.Id).Select(x => new { x.CountryOfProductionCode, x.ProductionPeriodFrom, x.ProductionPeriodTo, x.ConfirmedQuantity, x.Notes }).SingleOrDefaultAsync(ct);
-        var docs = await db.Documents.Where(x => x.EudrCaseId == c.Id && x.SupplierRequestId == r.Id).Select(x => new { x.Id, x.OriginalFileName, x.SizeBytes, x.UploadedAtUtc }).ToListAsync(ct);
-        var geo = await db.Geolocations.Where(x => x.EudrCaseId == c.Id && x.SupplierRequestId == r.Id).Select(x => new { x.OriginalFileName, x.FeatureCount, x.GeometryTypes, x.ValidationStatus }).SingleOrDefaultAsync(ct);
+        var submission = await db.Submissions.Current().Where(x => x.EudrCaseId == c.Id).Select(x => new { x.CountryOfProductionCode, x.ProductionPeriodFrom, x.ProductionPeriodTo, x.ConfirmedQuantity, x.Notes }).SingleOrDefaultAsync(ct);
+        var docs = await db.Documents.Current().Where(x => x.EudrCaseId == c.Id && x.SupplierRequestId == r.Id).Select(x => new { x.Id, x.OriginalFileName, x.SizeBytes, x.UploadedAtUtc }).ToListAsync(ct);
+        var geo = await db.Geolocations.Current().Where(x => x.EudrCaseId == c.Id && x.SupplierRequestId == r.Id).Select(x => new { x.OriginalFileName, x.FeatureCount, x.GeometryTypes, x.ValidationStatus }).SingleOrDefaultAsync(ct);
         await tx.CommitAsync(ct);
         return new { requestId = r.Id, requestingOrganization = org.Name, shipmentReference = shipment.ReferenceNumber, product = new { product.Name, product.CnCode }, shipment.Quantity, shipment.Unit, requirements, supplierSubmission = submission, documents = docs, geolocation = geo, r.ExpiresAtUtc, r.CompletedAtUtc };
     }
@@ -79,15 +79,21 @@ public sealed class SupplierRequestService(AppDbContext db, TenantContext tenant
     {
         await validator.ValidateAndThrowAsync(input, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct); var (r, c) = await LockPublic(token, ct);
-        var s = await db.Submissions.SingleOrDefaultAsync(x => x.EudrCaseId == c.Id, ct);
-        if (s == null) { s = new SupplierSubmission { OrganizationId = r.OrganizationId, EudrCaseId = c.Id }; db.Submissions.Add(s); }
-        s.CountryOfProductionCode = input.CountryOfProductionCode; s.ProductionPeriodFrom = input.ProductionPeriodFrom; s.ProductionPeriodTo = input.ProductionPeriodTo; s.ConfirmedQuantity = input.ConfirmedQuantity; s.Notes = input.Notes; s.SubmittedAtUtc = DateTimeOffset.UtcNow;
+        // Append-only: retire the current version, then insert the new one. The retirement is saved first so the partial unique index (one current row per case) is never violated.
+        var previous = await db.Submissions.Current().SingleOrDefaultAsync(x => x.EudrCaseId == c.Id, ct);
+        if (previous != null) { previous.SupersededAtUtc = DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct); }
+        var s = new SupplierSubmission
+        {
+            OrganizationId = r.OrganizationId, EudrCaseId = c.Id, SupplierRequestId = r.Id, CountryOfProductionCode = input.CountryOfProductionCode,
+            ProductionPeriodFrom = input.ProductionPeriodFrom, ProductionPeriodTo = input.ProductionPeriodTo, ConfirmedQuantity = input.ConfirmedQuantity, Notes = input.Notes, SubmittedAtUtc = DateTimeOffset.UtcNow
+        };
+        db.Submissions.Add(s);
         await SetRequirement(c.Id, RequirementType.SupplierInformation, true, ct);
         await SetRequirement(c.Id, RequirementType.CountryOfProduction, !string.IsNullOrEmpty(input.CountryOfProductionCode), ct);
         await SetRequirement(c.Id, RequirementType.ProductionPeriod, input.ProductionPeriodFrom != null && input.ProductionPeriodTo != null, ct);
         await SetRequirement(c.Id, RequirementType.QuantityConfirmation, input.ConfirmedQuantity > 0, ct);
         r.CompletedAtUtc = null; c.SupplierSubmissionCompletedAtUtc = null;
-        audit.Add(c.Id, "SupplierDetailsUpdated", "Supplier production details updated.", r.Id); await statuses.Recalculate(c, ct); await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
+        audit.Add(c.Id, "SupplierDetailsUpdated", $"Supplier production details updated (submission {s.Id}).", r.Id); await statuses.Recalculate(c, ct); await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
     }
     public async Task SetRequirement(Guid caseId, RequirementType type, bool present, CancellationToken ct)
     {

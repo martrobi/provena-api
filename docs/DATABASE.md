@@ -22,6 +22,8 @@ ConfigureTenant is applied to all ten tenant types: Supplier, Product, Shipment,
 
 `SaveChangesAsync(CancellationToken)` inspects tracked Entity instances. For added/modified/deleted TenantEntity rows it rejects an empty current tenant or a current OrganizationId different from the tenant; for modifications/deletions the original OrganizationId must also match. This prevents simply reassigning a foreign tracked row to the current tenant through this save path. It rejects tracked AuditEvent modifications/deletions before saving. Services stamp OrganizationId explicitly; the context does not silently fill it in.
 
+**Retained evidence guard.** The same override applies to `CaseDocument`, `GeoSubmission` and `SupplierSubmission`: `Deleted` is always rejected, and `Modified` is allowed only as one retirement transition from an unretired row: the marker (`WithdrawnAtUtc` or `SupersededAtUtc`) must change from null, `WithdrawnByUserId` may change only in that same transition (its original must also be null), and `UpdatedAtUtc` is tolerated only alongside the marker (on its own it throws). Un-retiring, re-timestamping, filling the withdrawal actor later, or editing stored values/keys throws `InvalidOperationException`. Use `Data/RetainedEvidence.cs` `Current()` for "current" queries instead of a global query filter (a filter would push history reads towards `IgnoreQueryFilters`). A supersede is saved before the replacement row is added, inside the case-locked transaction, because EF cannot order the writes around the filtered unique index.
+
 **Scope matters:** only this async overload is overridden. Synchronous SaveChanges, the async bool overload, ExecuteUpdate/ExecuteDelete and raw SQL do not run this custom guard. Bulk operations may still have query filters unless bypassed, but do not receive the tracked-write/audit/timestamp checks. No database row-level-security policy, audit trigger or restricted audit-table grants are supplied. Do not describe these controls as universal database immutability. Ordinary application saves currently call the guarded overload; expiry integration tests deliberately use IgnoreQueryFilters + ExecuteUpdateAsync.
 
 ## Relationships and indexes declared in model and initial SQL
@@ -34,7 +36,8 @@ ConfigureTenant is applied to all ten tenant types: Supplier, Product, Shipment,
 | Case | Unique ShipmentId ensures at most one case per shipment; composite FK to shipment; `(OrganizationId, Status)` index |
 | Requirement | Unique `(EudrCaseId, Type)`; composite FK to case |
 | SupplierRequest | Globally unique TokenHash; partial unique EudrCaseId WHERE RevokedAtUtc IS NULL; composite FKs to case and supplier |
-| Submission / geolocation | Unique EudrCaseId in each table; composite FK to case |
+| Submission / geolocation | Composite FK to case. Partial unique `(EudrCaseId) WHERE "SupersededAtUtc" IS NULL` (`IX_Submissions_EudrCaseId`, `IX_Geolocations_EudrCaseId`): at most one **current** row per case, any number of superseded rows |
+| Document | Composite FK to case. No unique constraint: many current documents per case; `WithdrawnAtUtc IS NULL` is current |
 | Documents | Multiple per case; composite FK to case |
 | Audit | Optional composite FK to case, organization FK, `(EudrCaseId, CreatedAtUtc)` index |
 
@@ -46,7 +49,7 @@ No FK is declared for Documents/Geolocations/AuditEvents.SupplierRequestId, Audi
 
 ## Deletion behaviour
 
-Unused supplier/product rows are removed; shipment references cause a service 409 and declared FK restrictions protect referenced rows. Shipment DELETE archives its case and revokes requests, retaining evidence. Documents are deleted with best-effort byte cleanup; current geolocation is replaced in place. No general soft-delete column or evidence-retention/versioning policy exists. [EUDR_DOMAIN](EUDR_DOMAIN.md) owns terminal-state exceptions.
+Unused supplier/product rows are removed; shipment references cause a service 409 and declared FK restrictions protect referenced rows. Shipment DELETE archives its case and revokes requests, retaining evidence. Evidence is never physically deleted or overwritten ([ADR 0005](adr/0005-retained-evidence-append-only-rows.md)): document DELETE sets `WithdrawnAtUtc`/`WithdrawnByUserId`; a geometry upload or supplier details save inserts a new row and sets `SupersededAtUtc` on the previous current row. Rows and stored bytes stay (`IFileStorage.DeleteAsync` is only used to clean up uncommitted bytes after a failed upload). Legacy rows that predate this change are simply current, with null actor/request metadata; destroyed earlier versions are not reconstructed. There is no erasure/disposal path and no retention schedule (open legal item); capacity of the unbounded retained history is deferred. No general soft-delete column exists for other entities. [EUDR_DOMAIN](EUDR_DOMAIN.md) owns terminal-state exceptions.
 
 ## Migration history and the frozen initial target model
 
@@ -55,6 +58,8 @@ InitialCreate.Up/Down use embedded raw PostgreSQL SQL. Down drops all applicatio
 InitialCreate's target model lives in its own file, `Data/Migrations/InitialCreate.TargetModel.cs` (a partial of the migration class; deliberately not named `.Designer.cs`, which the compiler treats as auto-generated and rejects nullable annotations in). It is a frozen copy of the original model and is independent of `AppDbContextModelSnapshot`, the only migration file EF rewrites when a migration is added. Never edit or regenerate it; a new migration gets its own target model from `dotnet ef migrations add`. Do not regenerate the initial migration over existing data.
 
 `MigrationTests` (integration, own disposable PostgreSQL container) checks that the frozen model still describes the initial 19 tables, that a clean database migrates to the current snapshot, and that a database at the InitialCreate schema with a row upgrades to the latest migration keeping the row. The integration fixture's HasPendingModelChanges assertion checks current model vs snapshot, not whether hand-authored migration SQL matches either. Static review confirms major declared relationships/types/indexes; it does not prove complete model/DDL equivalence.
+
+`RetainedEvidence` (20261012225511) adds nullable columns (`Documents`: `UploadedByUserId`, `WithdrawnAtUtc`, `WithdrawnByUserId`; `Geolocations`: `UploadedByUserId`, `SupersededAtUtc`; `Submissions`: `SupplierRequestId`, `SupersededAtUtc`) and replaces the two full unique indexes with partial unique ones of the same names. No backfill. User/request ids have no FK, like `ReviewedByUserId`. **Down caveat:** Down starts with a `DO $$` guard that raises `Retained evidence versions exist; rollback would destroy history` if any case has more than one geolocation/submission row, any row is superseded, or any document is withdrawn; only then does it drop the columns and restore the full unique indexes. Rollback is therefore only possible before retained versions exist. `MigrationTests` covers the partial indexes, upgrade with rows, the second-current-row violation, the guard refusal (schema and rows intact) and a clean Down. The snapshot was patched by hand in its existing compact format (EF regenerates it in the standard format); `HasPendingModelChanges` is asserted by the tests.
 
 ## Schema-change procedure (project rule)
 

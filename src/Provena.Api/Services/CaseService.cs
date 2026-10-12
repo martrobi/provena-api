@@ -21,10 +21,10 @@ public sealed class CaseService(AppDbContext db, TenantContext tenant, EudrCaseS
         var shipment = await db.Shipments.AsNoTracking().SingleAsync(x => x.Id == c.ShipmentId, ct);
         var supplier = await db.Suppliers.AsNoTracking().SingleAsync(x => x.Id == shipment.SupplierId, ct);
         var product = await db.Products.AsNoTracking().SingleAsync(x => x.Id == shipment.ProductId, ct);
-        var submission = await db.Submissions.AsNoTracking().SingleOrDefaultAsync(x => x.EudrCaseId == id, ct);
+        var submission = await db.Submissions.AsNoTracking().Current().SingleOrDefaultAsync(x => x.EudrCaseId == id, ct);
         var requirements = await db.Requirements.AsNoTracking().Where(x => x.EudrCaseId == id).OrderBy(x => x.Type).ToListAsync(ct);
-        var docs = await db.Documents.AsNoTracking().Where(x => x.EudrCaseId == id).OrderBy(x => x.UploadedAtUtc).ToListAsync(ct);
-        var geo = await db.Geolocations.AsNoTracking().SingleOrDefaultAsync(x => x.EudrCaseId == id, ct);
+        var docs = await db.Documents.AsNoTracking().Current().Where(x => x.EudrCaseId == id).OrderBy(x => x.UploadedAtUtc).ToListAsync(ct);
+        var geo = await db.Geolocations.AsNoTracking().Current().SingleOrDefaultAsync(x => x.EudrCaseId == id, ct);
         var request = await db.SupplierRequests.AsNoTracking().Where(x => x.EudrCaseId == id).OrderByDescending(x => x.CreatedAtUtc).FirstOrDefaultAsync(ct);
         var events = await db.AuditEvents.AsNoTracking().Where(x => x.EudrCaseId == id).OrderByDescending(x => x.CreatedAtUtc).ToListAsync(ct);
         return new(c.Id, c.Status, shipment, supplier, product, submission, requirements, docs.Select(x => x.ToDto()).ToList(), geo?.ToDto(), request?.ToDto(), events, c.ExternalDdsReference, c.CreatedAtUtc, c.UpdatedAtUtc, c.CompletedAtUtc);

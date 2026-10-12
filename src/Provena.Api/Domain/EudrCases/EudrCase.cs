@@ -39,4 +39,7 @@ public sealed class SupplierSubmission : TenantEntity
     public decimal? ConfirmedQuantity { get; set; }
     public string? Notes { get; set; }
     public DateTimeOffset? SubmittedAtUtc { get; set; }
+    public Guid? SupplierRequestId { get; set; }
+    // One-way retirement marker: set when a later details save supersedes this version. Values are never overwritten.
+    public DateTimeOffset? SupersededAtUtc { get; set; }
 }

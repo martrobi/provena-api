@@ -55,9 +55,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         b.Entity<SupplierRequest>().HasIndex(x => x.EudrCaseId).IsUnique().HasFilter("\"RevokedAtUtc\" IS NULL");
         b.Entity<SupplierRequest>().Property(x => x.TokenHash).HasMaxLength(64);
         b.Entity<SupplierRequest>().HasOne<Supplier>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.SupplierId }).HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
-        b.Entity<SupplierSubmission>().HasIndex(x => x.EudrCaseId).IsUnique();
+        b.Entity<SupplierSubmission>().HasIndex(x => x.EudrCaseId).IsUnique().HasFilter("\"SupersededAtUtc\" IS NULL"); // At most one current version per case.
         b.Entity<SupplierSubmission>().Property(x => x.ConfirmedQuantity).HasPrecision(20, 6);
-        b.Entity<GeoSubmission>().HasIndex(x => x.EudrCaseId).IsUnique();
+        b.Entity<GeoSubmission>().HasIndex(x => x.EudrCaseId).IsUnique().HasFilter("\"SupersededAtUtc\" IS NULL"); // At most one current version per case.
         b.Entity<GeoSubmission>().Property(x => x.RawGeoJson).HasColumnType("jsonb");
         b.Entity<AuditEvent>().Property(x => x.MetadataJson).HasColumnType("jsonb");
         b.Entity<AuditEvent>().HasIndex(x => new { x.EudrCaseId, x.CreatedAtUtc });
@@ -76,12 +76,33 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
     private static void CaseForeignKey<T>(ModelBuilder b) where T : TenantEntity => b.Entity<T>()
         .HasOne<EudrCase>().WithMany().HasForeignKey("OrganizationId", "EudrCaseId")
         .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+    // Retained evidence rows are append-only: never deleted, and the only allowed update is the one-way retirement (null -> value).
+    // Application-level only: other SaveChanges overloads, bulk writes and raw SQL bypass this guard.
+    // Marker = the property whose null -> value change defines the retirement; companions may only change in that same transition.
+    private static readonly Dictionary<Type, (string Marker, string[] Companions)> Retirement = new()
+    {
+        [typeof(CaseDocument)] = (nameof(CaseDocument.WithdrawnAtUtc), [nameof(CaseDocument.WithdrawnByUserId)]),
+        [typeof(GeoSubmission)] = (nameof(GeoSubmission.SupersededAtUtc), []),
+        [typeof(SupplierSubmission)] = (nameof(SupplierSubmission.SupersededAtUtc), []),
+    };
+    private static void EnforceRetainedEvidence(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Entity> entry)
+    {
+        if (entry.State == EntityState.Deleted) throw new InvalidOperationException("Retained evidence is never deleted; withdraw or supersede it.");
+        if (entry.State != EntityState.Modified) return;
+        var (marker, companions) = Retirement[entry.Entity.GetType()];
+        // UpdatedAtUtc alone is not a retirement; it is only tolerated alongside one.
+        var changed = entry.Properties.Where(p => p.IsModified && p.Metadata.Name != nameof(Entity.UpdatedAtUtc)).Select(p => p.Metadata.Name).ToList();
+        var fromUnretired = entry.Property(marker).OriginalValue == null && companions.All(c => entry.Property(c).OriginalValue == null);
+        if (!changed.Contains(marker) || !fromUnretired || changed.Any(n => n != marker && !companions.Contains(n)))
+            throw new InvalidOperationException("Retained evidence is immutable except for one-way retirement.");
+    }
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         foreach (var entry in ChangeTracker.Entries<Entity>())
         {
             if (entry.Entity is AuditEvent && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Audit events are append-only.");
+            if (entry.Entity is CaseDocument or GeoSubmission or SupplierSubmission) EnforceRetainedEvidence(entry);
             if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted)) continue;
             if (entry.Entity is TenantEntity owned && (TenantId == Guid.Empty || owned.OrganizationId != TenantId ||
                 (entry.State != EntityState.Added && entry.OriginalValues.GetValue<Guid>(nameof(TenantEntity.OrganizationId)) != TenantId)))

@@ -14,8 +14,8 @@ public sealed record RequestLink(Guid RequestId, string PublicUrl, DateTimeOffse
 public sealed record ImportError(int Row, string Message);
 public sealed record ImportResult(int TotalRows, int Imported, int Failed, IReadOnlyList<ImportError> Errors);
 public sealed record CaseListItem(Guid Id, string ShipmentReference, string SupplierName, string ProductName, EudrCaseStatus Status, int MissingRequiredCount, int SubmittedForReviewCount, DateTimeOffset UpdatedAtUtc);
-public sealed record DocumentDto(Guid Id, string OriginalFileName, string ContentType, long SizeBytes, DocumentCategory Category, UploadedByType UploadedByType, DateTimeOffset UploadedAtUtc);
-public sealed record GeoDto(Guid Id, string OriginalFileName, int FeatureCount, string GeometryTypes, GeoValidationStatus ValidationStatus, string? ValidationMessage, DateTimeOffset UploadedAtUtc);
+public sealed record DocumentDto(Guid Id, string OriginalFileName, string ContentType, long SizeBytes, DocumentCategory Category, UploadedByType UploadedByType, DateTimeOffset UploadedAtUtc, DateTimeOffset? WithdrawnAtUtc = null);
+public sealed record GeoDto(Guid Id, string OriginalFileName, int FeatureCount, string GeometryTypes, GeoValidationStatus ValidationStatus, string? ValidationMessage, DateTimeOffset UploadedAtUtc, DateTimeOffset? SupersededAtUtc = null);
 public sealed record SupplierRequestDto(Guid Id, string Status, DateTimeOffset ExpiresAtUtc, DateTimeOffset? SentAtUtc, DateTimeOffset? OpenedAtUtc, DateTimeOffset? CompletedAtUtc, DateTimeOffset? RevokedAtUtc);
 public sealed record CaseDetails(Guid Id, EudrCaseStatus Status, Shipment Shipment, Supplier Supplier, Product Product,
     SupplierSubmission? SupplierSubmission, List<EudrRequirement> Requirements, List<DocumentDto> Documents,
@@ -23,7 +23,7 @@ public sealed record CaseDetails(Guid Id, EudrCaseStatus Status, Shipment Shipme
     DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, DateTimeOffset? CompletedAtUtc);
 public static class DtoMaps
 {
-    public static DocumentDto ToDto(this CaseDocument d) => new(d.Id, d.OriginalFileName, d.ContentType, d.SizeBytes, d.Category, d.UploadedByType, d.UploadedAtUtc);
-    public static GeoDto ToDto(this GeoSubmission g) => new(g.Id, g.OriginalFileName, g.FeatureCount, g.GeometryTypes, g.ValidationStatus, g.ValidationMessage, g.UploadedAtUtc);
+    public static DocumentDto ToDto(this CaseDocument d) => new(d.Id, d.OriginalFileName, d.ContentType, d.SizeBytes, d.Category, d.UploadedByType, d.UploadedAtUtc, d.WithdrawnAtUtc);
+    public static GeoDto ToDto(this GeoSubmission g) => new(g.Id, g.OriginalFileName, g.FeatureCount, g.GeometryTypes, g.ValidationStatus, g.ValidationMessage, g.UploadedAtUtc, g.SupersededAtUtc);
     public static SupplierRequestDto ToDto(this SupplierRequest r) => new(r.Id, r.RevokedAtUtc != null ? "Revoked" : r.ExpiresAtUtc <= DateTimeOffset.UtcNow ? "Expired" : r.CompletedAtUtc != null ? "Submitted" : "Active", r.ExpiresAtUtc, r.SentAtUtc, r.OpenedAtUtc, r.CompletedAtUtc, r.RevokedAtUtc);
 }

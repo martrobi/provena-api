@@ -11,7 +11,7 @@ Authoritative source: the Minimal API modules in `src/Provena.Api/Endpoints/` (r
 | Shipments/ShipmentEndpoints, Cases/DashboardEndpoints | GET/POST `/api/shipments`; GET/PUT/DELETE `/api/shipments/{id}` (DELETE archives case); GET `/api/dashboard` |
 | Cases/CaseEndpoints | GET `/api/eudr-cases`; GET `/{id}`; PATCH `/{caseId}/requirements/{requirementId}`; POST `/{caseId}/supplier-request`; POST `/{caseId}/complete`; GET `/{caseId}/export` |
 | SupplierRequests/SupplierRequestEndpoints | POST `/api/supplier-requests/{id}/revoke` and `/regenerate` |
-| Cases/CaseFileEndpoints | GET/POST `/api/eudr-cases/{caseId}/documents`; GET/DELETE `/documents/{documentId}`; POST/GET `/geolocation` |
+| Cases/CaseFileEndpoints | GET/POST `/api/eudr-cases/{caseId}/documents`; GET/DELETE `/documents/{documentId}`; POST/GET `/geolocation` (see "Retained evidence" below: DELETE withdraws, geometry upload supersedes) |
 | Imports/ImportEndpoints | POST `/api/import/suppliers`, `/products`, `/shipments` |
 | SupplierRequests/PublicSupplierEndpoints | GET `/public/supplier-requests/{token}`; PUT `/details`; POST `/documents`, `/geolocation`, `/complete` |
 
@@ -26,6 +26,17 @@ Catalog creates return 201 with an absolute Location (named GET route); shipment
 Explicit service FluentValidation includes length limits, email shape, uppercase two-letter country format, numeric CN code length 4–10, positive quantities and enum membership. These are not registry/legal validations. OIB validation is 11 digits only. Review notes are optional; completion DDS reference is optional with max 200 characters. Parameter binding can reject malformed JSON, missing bodies or unparsable values before services. Do not move validation only to the UI.
 
 Tenant-wide internal list endpoints that can grow without bound use the shared offset-paging convention ([ADR 0004](adr/0004-paginated-collection-endpoints.md)): `GET /api/eudr-cases`, `/api/suppliers`, `/api/products` and `/api/shipments`. Query `page` (default 1, >= 1) and `pageSize` (default 25, 1–100); invalid or non-integer values and a skip that overflows an integer are rejected with 400. The response is `PageResult<T>`: `{ items, page, pageSize, totalCount }`, where `totalCount` is the tenant-filtered total and a page past the end returns empty `items`. Ordering is deterministic and ends with a unique tiebreak: cases `UpdatedAtUtc` descending then ID; suppliers and products `Name` then ID; shipments `CreatedAtUtc` descending then ID. Implementation: `Common/Paging.cs` (`ToPageAsync` accepts only ordered queries). Filters: cases take status, supplierId, productId and `search` <=200 characters over shipment reference/supplier/product name; suppliers take `search` <=200 over name; products take `search` <=200 over name or CN code and an optional boolean `isActive` (omitted returns active and inactive; the filter applies before `totalCount`, ordering and paging; a non-boolean value is rejected with 400); shipments have no filters. Per-case nested collections (documents, requirements, audit events), the dashboard and other lookup-style or bounded results stay unpaginated; a new tenant-wide list uses the helper, and anything else paginates only for a concrete growth reason.
+
+## Retained evidence (files, geometry, details, export)
+
+Evidence is append-only ([ADR 0005](adr/0005-retained-evidence-append-only-rows.md)); every endpoint below shows **current** evidence only.
+
+- `DELETE /documents/{documentId}` **withdraws** the document: 204, the row and bytes are retained, audit event `DocumentWithdrawn` (historic `DocumentDeleted` events remain). Repeating it on a withdrawn document returns 204 as a no-op (no audit event, no requirement change); unknown or foreign ids stay 404; Completed/Archived cases stay 409.
+- `GET /documents` and `CaseDetails.documents` list current documents only. `GET /documents/{documentId}` still downloads a withdrawn document (tenant and case scoped).
+- `DocumentDto.withdrawnAtUtc` and `GeoDto.supersededAtUtc` are additive (null in current-only responses). `CaseDetails.supplierSubmission` gains `supersededAtUtc` and `supplierRequestId`.
+- Every geometry upload and every public `PUT .../details` creates a new row, so `GeoDto.id` and `supplierSubmission.id` change on each replacement/save (they were stable before).
+- The export ZIP contains current evidence only. `manifest.json` gains `evidenceScope` (a notice that it is not a reviewed dossier snapshot) and `retainedNotIncluded` `{ withdrawnDocuments, supersededGeolocations, supersededSupplierSubmissions }`.
+- No history read endpoint exists yet; retained versions are not exposed through the API in this change.
 
 ## Errors
 
