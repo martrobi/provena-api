@@ -25,7 +25,10 @@ internal static class CaseFactEndpoints
         links.MapGet("", Links);
         links.MapPost("", CreateLink);
         links.MapDelete("/{linkId:guid}", WithdrawLink);
+        group.MapGroup("").WithTags("Completeness").MapGet("/completeness", Completeness);
     }
+    // Read-only current-working-dossier completeness (policy v1). 404 for an unknown or foreign case; it writes nothing.
+    private static async Task<Ok<CompletenessDto>> Completeness(Guid caseId, CompletenessService service, CancellationToken ct) => TypedResults.Ok(await service.Get(caseId, ct));
     // No copy / no record yet is 204; an unknown or foreign case is 404.
     private static async Task<Results<Ok<CaseMasterDataDto>, NoContent>> MasterData(Guid caseId, CaseMasterDataService service, CancellationToken ct)
         => await service.Current(caseId, ct) is { } value ? TypedResults.Ok(value) : TypedResults.NoContent();

@@ -259,6 +259,7 @@ public sealed class HttpContractTests(ApiFactory factory)
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/applicability"), (HttpMethod.Put, $"/api/eudr-cases/{caseId}/applicability"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/applicability-history"),
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/recipients"), (HttpMethod.Put, $"/api/eudr-cases/{caseId}/recipients"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/recipients-history"),
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/evidence-links"), (HttpMethod.Post, $"/api/eudr-cases/{caseId}/evidence-links"), (HttpMethod.Delete, $"/api/eudr-cases/{caseId}/evidence-links/{id}"),
+            (HttpMethod.Get, $"/api/eudr-cases/{caseId}/completeness"),
         };
         foreach (var (method, path) in requests)
             Assert.True(HttpStatusCode.Unauthorized == (await anonymous.SendAsync(new HttpRequestMessage(method, path))).StatusCode, $"{method} {path}");
@@ -351,11 +352,12 @@ public sealed class HttpContractTests(ApiFactory factory)
             "/api/operator-profile", "/api/eudr-cases/{caseId}/master-data", "/api/eudr-cases/{caseId}/master-data/refresh", "/api/eudr-cases/{caseId}/master-data-history",
             "/api/eudr-cases/{caseId}/applicability", "/api/eudr-cases/{caseId}/applicability-history", "/api/eudr-cases/{caseId}/recipients", "/api/eudr-cases/{caseId}/recipients-history",
             "/api/eudr-cases/{caseId}/evidence-links", "/api/eudr-cases/{caseId}/evidence-links/{linkId}",
+            "/api/eudr-cases/{caseId}/completeness",
             "/api/import/shipments", "/public/supplier-requests/{token}", "/public/supplier-requests/{token}/details", "/public/supplier-requests/{token}/documents",
             "/public/supplier-requests/{token}/geolocation", "/public/supplier-requests/{token}/complete",
         })
             Assert.Contains(path, paths);
-        Assert.Equal(50, paths.Count);
+        Assert.Equal(51, paths.Count);
         var login = document.GetProperty("paths").GetProperty("/api/auth/login").GetProperty("post");
         Assert.False(login.TryGetProperty("security", out _));
         Assert.True(document.GetProperty("paths").GetProperty("/api/suppliers").GetProperty("get").TryGetProperty("security", out _));

@@ -1,6 +1,6 @@
 # Completeness facts: operator profile, case master data, applicability, recipients and evidence links
 
-Status: **partial handoff.** This covers only the working-fact APIs that exist now (Slice 5, commit 1). The completeness evaluation API (`GET .../completeness`), review records, the Owner review gate, review freshness and the reviewed export are **not implemented**; they will extend this document when they land. Do not build against them yet.
+Status: **partial handoff.** This covers the working-fact APIs (Slice 5, commit 1) and the read-only completeness API (commit 2). Review records, the Owner review gate, review freshness and the reviewed export are **not implemented**; they will extend this document when they land. Do not build against them yet.
 
 ## 1. Summary
 
@@ -33,6 +33,7 @@ New (all internal, authenticated, no `organizationId` in any body):
 | GET `/api/eudr-cases/{caseId}/evidence-links` | 200 all links, withdrawn included |
 | POST `/api/eudr-cases/{caseId}/evidence-links` | **201** link |
 | DELETE `/api/eudr-cases/{caseId}/evidence-links/{linkId}` | 204 (withdrawal) |
+| GET `/api/eudr-cases/{caseId}/completeness` | 200 completeness report (read-only; see 5a) |
 
 Changed: `POST/PUT /api/suppliers` accept an optional `postalAddress`; supplier responses (list and single) include `postalAddress` (null when unset). The supplier CSV import header is **unchanged**.
 
@@ -124,6 +125,36 @@ History routes return arrays newest first (`[]` when none), unpaginated. Dates a
 - Identical re-submission of applicability/recipients, or a refresh with unchanged values, is 200 and creates nothing (same version id).
 - 405 for DELETE on the profile, master data, applicability and recipients.
 
+## 5a. Completeness read model (`GET /api/eudr-cases/{caseId}/completeness`)
+
+New, internal, authenticated and **read-only** (no write, no audit, no change to requirements or the case status). 401 anonymous, 404 unknown or foreign case. It reports whether the recorded facts satisfy a versioned pilot policy. It is **not** a compliance, safety, deforestation-free, risk or DDS-readiness result, and there is no combined "OK" flag: the client must show the three axes separately.
+
+```json
+{
+  "policy": { "id": "provena-pilot-completeness", "version": "1", "limitations": ["…"] },
+  "evaluatedAtUtc": "2026-10-14T09:00:00+00:00",
+  "fingerprint": "<64 lower-case hex>", "fingerprintVersion": 1,
+  "applicability": { "status": "WithinSupportedScope", "currentVersionId": "…" },
+  "dataCoverage": "Incomplete",
+  "evidenceReadiness": "AwaitingRequirementDecisions",
+  "reviewFreshness": "None",
+  "latestReview": null,
+  "advisories": [ { "code": "CATALOGUE_DRIFT_SUPPLIER", "area": "Supplier", "subjectId": null, "message": "…" } ],
+  "items": [ { "code": "PARTY_RECIPIENTS", "group": "Parties", "subjectType": null, "subjectId": null, "status": "Missing", "reason": "Recipients are unresolved: …" } ]
+}
+```
+
+- `dataCoverage`: `Complete | Incomplete` from the groups `MasterData`, `Applicability`, `Product`, `Quantity`, `Production`, `Parties` (any `Missing` or `Invalid` item -> `Incomplete`). `Evidence` items never affect it.
+- `evidenceReadiness`: `EvidenceMissing | AwaitingRequirementDecisions | ReadyForOwnerReview`, from the `Evidence` group only. There is no "Reviewed" value. `ReadyForOwnerReview` means decided requirements and linked documents exist, nothing more.
+- `reviewFreshness` is always `"None"` and `latestReview` is always `null` for now. Do not render a review state; the review APIs arrive later and will fill these two fields without changing their names.
+- `items[].status`: `Satisfied | Missing | Invalid | AwaitingReview | NotApplicable`. `AwaitingReview` appears only for a `Submitted` requirement. `reason` is human-readable text that says what was checked and may be shown as-is. `group` is one of the seven names above. Item `code`s are stable identifiers (full list and rules in the API documentation); `REQUIREMENT_<Type>` uses the requirement type name as is, for example `REQUIREMENT_Geolocation`. `subjectType`/`subjectId` point at the row the item is about, or are null.
+- `advisories` are informational (catalogue changed since the case copied it; a pinned plot revision has since been superseded). They never make a case incomplete and never change `fingerprint`.
+- `fingerprint` is an opaque identifier of the case facts (lower-case SHA-256 hex) that changes exactly when a fact changes and **not** for catalogue edits, context-only master-data refreshes, producer/plot renames, a superseded pinned revision or case status changes. It is meant for optimistic comparison by the later review API; clients should treat it as an opaque string and `fingerprintVersion` as a number.
+- Two properties to reflect in the UI: (1) completeness is independent of the operational status - a case can be `ReadyForExport` or `Completed` while `dataCoverage` is `Incomplete`; (2) `MASTER_DATA_SHIPMENT_MATCH` is `Invalid` after the shipment's supplier or product changed until the user refreshes the case master data.
+- Evidence links count only while the link itself is not withdrawn **and** its document is current; the `EVIDENCE_*_PRESENT` reasons say "presence only; not reviewed and not a sufficiency finding" and the UI must not present them as verification.
+
+Working export (`GET .../export`): the manifest gains `completeness` (the same object), `latestReview` (`null`) and `reviewScope` ("Working-current export. Not the reviewed record; use the review export for what was reviewed."). Nothing existing in the package changed.
+
 ## 6. Breaking-change notes
 
 - **No existing field or route is removed or renamed.** Supplier responses gain `postalAddress` (additive).
@@ -139,6 +170,7 @@ History routes return arrays newest first (`[]` when none), unpaginated. Dates a
 - Evidence links: let users offer an existing, non-withdrawn case document for a purpose; show withdrawn-document links as such; use DELETE to withdraw. Label a link as "offered for this purpose", never as verified, sufficient or compliant.
 - Handle 409 (terminal case) by making these editors read-only on Completed/Archived cases.
 - Re-saving unchanged content is safe and idempotent.
+- Add a completeness view per case from `GET .../completeness` (section 5a): show the two live axes separately, list the items grouped by `group` with their `reason`, show advisories as information, and never derive a single pass/fail or compliance badge from them. Refetch after any fact change; compare nothing yet by `fingerprint`.
 
 ## 8. Compatibility risks
 
@@ -150,10 +182,10 @@ History routes return arrays newest first (`[]` when none), unpaginated. Dates a
 
 ## 9. Out-of-scope items
 
-Not implemented: completeness evaluation and `GET completeness`, review records and decisions, the Owner review gate, review freshness/staleness, reviewed export, fingerprinting, risk assessment and mitigation, release/approval, DDS and EU Information System submission, downstream/trader workflows, cattle establishments, wood species, composite products, Article 4a, split/merge/processing, coordinate-precision checks. EORI is stored but never evaluated. The working export (`GET .../export`) is unchanged by this commit.
+Not implemented: review records and decisions, the Owner review gate, review freshness/staleness, reviewed export, fingerprinting, risk assessment and mitigation, release/approval, DDS and EU Information System submission, downstream/trader workflows, cattle establishments, wood species, composite products, Article 4a, split/merge/processing, coordinate-precision checks. EORI is stored but never evaluated. The working export gained only the additive `completeness`, `latestReview` and `reviewScope` members (section 5a).
 
 ## 10. Backend verification performed
 
-`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1`: Release build 0 warnings / 0 errors, 101 unit tests and 144 integration tests passed, 0 failed, 0 skipped, exit 0 (PostgreSQL 17 via Testcontainers). `dotnet ef migrations has-pending-model-changes` reports none, and the idempotent migration script was reviewed: existing tables change only by `Suppliers.PostalAddress` and the `Documents` alternate key.
+`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1`: Release build 0 warnings / 0 errors, 167 unit tests and 161 integration tests passed, 0 failed, 0 skipped, exit 0 (PostgreSQL 17 via Testcontainers). `dotnet ef migrations has-pending-model-changes` reports none, and the idempotent migration script was reviewed: existing tables change only by `Suppliers.PostalAddress` and the `Documents` alternate key.
 
-Covered by `CompletenessFactsTests` (operator profile, supplier postal address, master-data refresh/idempotency/drift/shipment binding, applicability, recipients, evidence links, terminal-case and ordering rules, serialization), `CompletenessFactsModelTests`, `CompletenessFactsDomainTests`, the `CompletenessFacts` cases in `MigrationTests`, `EndpointInventoryTests` and `HttpContractTests`. No frontend was exercised.
+Covered by `CompletenessTests` and `CompletenessReadModelTests` (completeness read model, fingerprint, working export), `CompletenessFactsTests` (operator profile, supplier postal address, master-data refresh/idempotency/drift/shipment binding, applicability, recipients, evidence links, terminal-case and ordering rules, serialization), `CompletenessFactsModelTests`, `CompletenessFactsDomainTests`, the `CompletenessFacts` cases in `MigrationTests`, `EndpointInventoryTests` and `HttpContractTests`. No frontend was exercised.

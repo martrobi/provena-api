@@ -44,6 +44,7 @@ public sealed class EndpointInventoryTests(ApiFactory factory)
         new("GET", "api/eudr-cases/{caseId:guid}/dossier", Access.Authenticated), new("PUT", "api/eudr-cases/{caseId:guid}/dossier/lot", Access.Authenticated),
         new("GET", "api/eudr-cases/{caseId:guid}/dossier/lot-history", Access.Authenticated),
         new("GET", "api/operator-profile", Access.Authenticated), new("PUT", "api/operator-profile", Access.Authenticated),
+        new("GET", "api/eudr-cases/{caseId:guid}/completeness", Access.Authenticated),
         new("GET", "api/eudr-cases/{caseId:guid}/master-data", Access.Authenticated), new("POST", "api/eudr-cases/{caseId:guid}/master-data/refresh", Access.Authenticated),
         new("GET", "api/eudr-cases/{caseId:guid}/master-data-history", Access.Authenticated),
         new("GET", "api/eudr-cases/{caseId:guid}/applicability", Access.Authenticated), new("PUT", "api/eudr-cases/{caseId:guid}/applicability", Access.Authenticated),

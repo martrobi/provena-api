@@ -9,7 +9,7 @@ using Provena.Api.Data;
 using Provena.Api.Infrastructure;
 namespace Provena.Api.Services;
 public sealed record ExportResult(Stream Stream, string FileName);
-public sealed class ExportService(AppDbContext db, CaseService cases, CaseDossierService dossiers, IFileStorage storage, AuditService audit)
+public sealed class ExportService(AppDbContext db, CaseService cases, CaseDossierService dossiers, CompletenessService completeness, IFileStorage storage, AuditService audit)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
     public async Task<ExportResult> Export(Guid id, CancellationToken ct)
@@ -26,6 +26,7 @@ public sealed class ExportService(AppDbContext db, CaseService cases, CaseDossie
         var supersededSupplierSubmissions = await db.Submissions.CountAsync(x => x.EudrCaseId == id && x.SupersededAtUtc != null, ct);
         var supersededLotVersions = await db.CaseLots.CountAsync(x => x.SupersededAtUtc != null && db.CaseDossiers.Any(d => d.Id == x.CaseDossierId && d.EudrCaseId == id), ct);
         var dossier = await dossiers.Dossier(id, ct);
+        var currentCompleteness = await completeness.Compute(c, ct); // inside the case-locked transaction, so it matches the rest of the package
         // Distinct pinned revisions of the current lot only; the stored normalized geometry is written once per revision.
         var pinnedIds = dossier?.CurrentLot.Contributions.SelectMany(x => x.Plots).Select(x => x.PlotRevisionId).Distinct().ToList() ?? [];
         var pinnedRevisions = pinnedIds.Count == 0 ? [] : await db.PlotRevisions.AsNoTracking().Where(x => pinnedIds.Contains(x.Id)).OrderBy(x => x.Id).ToListAsync(ct);
@@ -54,7 +55,10 @@ public sealed class ExportService(AppDbContext db, CaseService cases, CaseDossie
                         evidenceScope = "Current working evidence at export time. This is not a reviewed dossier snapshot; withdrawn or superseded versions are retained in Provena and are not included.",
                         dossier,
                         dossierScope = "Current operator dossier lot at export time; not a reviewed dossier snapshot and not a completeness or compliance determination.",
-                        retainedNotIncluded = new { withdrawnDocuments, supersededGeolocations, supersededSupplierSubmissions, supersededLotVersions }
+                        retainedNotIncluded = new { withdrawnDocuments, supersededGeolocations, supersededSupplierSubmissions, supersededLotVersions },
+                        completeness = currentCompleteness,
+                        latestReview = (object?)null,
+                        reviewScope = "Working-current export. Not the reviewed record; use the review export for what was reviewed."
                     }, Json, ct);
                 var summary = zip.CreateEntry(prefix + "summary.csv");
                 await using (var writer = new StreamWriter(summary.Open(), new UTF8Encoding(true)))
