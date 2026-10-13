@@ -8,5 +8,5 @@ public enum CompletenessGroup { MasterData, Applicability, Product, Quantity, Pr
 public enum DataCoverage { Complete, Incomplete }
 // Axis 2: there is deliberately no "Reviewed" value; a reviewed state can only come from a human review record (a later commit).
 public enum EvidenceReadiness { EvidenceMissing, AwaitingRequirementDecisions, ReadyForOwnerReview }
-// Axis 3: no review history exists yet, so the only value is None. Current/Stale arrive with the review commit.
-public enum ReviewFreshness { None }
+// Axis 3 (latest human review): None = no review yet; Current = the facts still equal the reviewed ones; Stale = facts changed since. Never a compliance verdict.
+public enum ReviewFreshness { None, Current, Stale }

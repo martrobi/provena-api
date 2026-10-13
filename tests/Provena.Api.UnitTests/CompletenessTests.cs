@@ -17,7 +17,7 @@ public sealed class CompletenessTests
     private static Guid Fixed(int n) => new($"00000000-0000-0000-0001-{n:D12}");
 
     // A fully satisfied dossier; each test mutates the (fresh) parts it cares about.
-    private static DossierFacts Complete()
+    internal static DossierFacts Complete()
     {
         var shipment = new Shipment { Id = Fixed(1), ReferenceNumber = "SHP-1", SupplierId = SupplierId, ProductId = ProductId, Quantity = 10m, Unit = QuantityUnit.Kg, OriginCountryCode = "BR" };
         var md = new CaseMasterDataVersion
@@ -312,7 +312,7 @@ public sealed class CompletenessTests
     [Fact]
     public void Review_freshness_has_no_review_state_yet_and_the_axis_enums_pin_the_vocabulary()
     {
-        Assert.Equal(["None"], Enum.GetNames<ReviewFreshness>());
+        Assert.Equal(["None", "Current", "Stale"], Enum.GetNames<ReviewFreshness>());
         Assert.Equal(["EvidenceMissing", "AwaitingRequirementDecisions", "ReadyForOwnerReview"], Enum.GetNames<EvidenceReadiness>());
         Assert.Equal(["Complete", "Incomplete"], Enum.GetNames<DataCoverage>());
         Assert.Equal(["Satisfied", "Missing", "Invalid", "AwaitingReview", "NotApplicable"], Enum.GetNames<CompletenessItemStatus>());

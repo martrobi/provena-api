@@ -1,6 +1,6 @@
-# Completeness facts: operator profile, case master data, applicability, recipients and evidence links
+# Completeness facts, completeness read model and immutable reviewed history (Slice 5)
 
-Status: **partial handoff.** This covers the working-fact APIs (Slice 5, commit 1) and the read-only completeness API (commit 2). Review records, the Owner review gate, review freshness and the reviewed export are **not implemented**; they will extend this document when they land. Do not build against them yet.
+Status: **complete Slice 5 backend contract.** It covers the working-fact APIs (commit 1), the read-only completeness API (commit 2) and the Owner-only immutable reviews, review freshness and the reviewed export (commit 3). Risk, mitigation, release, DDS and EU Information System are out of scope.
 
 ## 1. Summary
 
@@ -12,6 +12,7 @@ The backend can now record, per organization and per case, the facts a later com
 - A **recipient statement** (versioned): identified recipients, or not applicable with a basis. No statement means unresolved.
 - **Evidence links**: a retained document of the case offered for a purpose (presence only).
 - Suppliers gain an optional **postal address**.
+- A read-only **completeness report** (data coverage, evidence readiness, advisories, fingerprint) and Owner-only **immutable reviews** with Current/Stale freshness and a reviewed export.
 
 ## 2. Changed endpoints or behaviour
 
@@ -34,6 +35,9 @@ New (all internal, authenticated, no `organizationId` in any body):
 | POST `/api/eudr-cases/{caseId}/evidence-links` | **201** link |
 | DELETE `/api/eudr-cases/{caseId}/evidence-links/{linkId}` | 204 (withdrawal) |
 | GET `/api/eudr-cases/{caseId}/completeness` | 200 completeness report (read-only; see 5a) |
+| POST `/api/eudr-cases/{caseId}/reviews` | **201** review (Owner only; see 5b) |
+| GET `/api/eudr-cases/{caseId}/reviews`, `/reviews/{reviewId}` | 200 summaries newest first / 200 review detail |
+| GET `/api/eudr-cases/{caseId}/reviews/{reviewId}/export` | 200 `application/zip` (reviewed export) |
 
 Changed: `POST/PUT /api/suppliers` accept an optional `postalAddress`; supplier responses (list and single) include `postalAddress` (null when unset). The supplier CSV import header is **unchanged**.
 
@@ -146,7 +150,7 @@ New, internal, authenticated and **read-only** (no write, no audit, no change to
 
 - `dataCoverage`: `Complete | Incomplete` from the groups `MasterData`, `Applicability`, `Product`, `Quantity`, `Production`, `Parties` (any `Missing` or `Invalid` item -> `Incomplete`). `Evidence` items never affect it.
 - `evidenceReadiness`: `EvidenceMissing | AwaitingRequirementDecisions | ReadyForOwnerReview`, from the `Evidence` group only. There is no "Reviewed" value. `ReadyForOwnerReview` means decided requirements and linked documents exist, nothing more.
-- `reviewFreshness` is always `"None"` and `latestReview` is always `null` for now. Do not render a review state; the review APIs arrive later and will fill these two fields without changing their names.
+- `reviewFreshness` is `"None"` and `latestReview` is `null` until the first review is recorded; after that they describe the latest review (section 5b). The shape of both is stable.
 - `items[].status`: `Satisfied | Missing | Invalid | AwaitingReview | NotApplicable`. `AwaitingReview` appears only for a `Submitted` requirement. `reason` is human-readable text that says what was checked and may be shown as-is. `group` is one of the seven names above. Item `code`s are stable identifiers (full list and rules in the API documentation); `REQUIREMENT_<Type>` uses the requirement type name as is, for example `REQUIREMENT_Geolocation`. `subjectType`/`subjectId` point at the row the item is about, or are null.
 - `advisories` are informational (catalogue changed since the case copied it; a pinned plot revision has since been superseded). They never make a case incomplete and never change `fingerprint`.
 - `fingerprint` is an opaque identifier of the case facts (lower-case SHA-256 hex) that changes exactly when a fact changes and **not** for catalogue edits, context-only master-data refreshes, producer/plot renames, a superseded pinned revision or case status changes. It is meant for optimistic comparison by the later review API; clients should treat it as an opaque string and `fingerprintVersion` as a number.
@@ -154,6 +158,35 @@ New, internal, authenticated and **read-only** (no write, no audit, no change to
 - Evidence links count only while the link itself is not withdrawn **and** its document is current; the `EVIDENCE_*_PRESENT` reasons say "presence only; not reviewed and not a sufficiency finding" and the UI must not present them as verification.
 
 Working export (`GET .../export`): the manifest gains `completeness` (the same object), `latestReview` (`null`) and `reviewScope` ("Working-current export. Not the reviewed record; use the review export for what was reviewed."). Nothing existing in the package changed.
+
+## 5b. Reviews (`/api/eudr-cases/{caseId}/reviews`)
+
+An organization **Owner** can record an immutable review of the dossier. A review is a human decision on exactly the facts the Owner loaded. It is **not** a legal-compliance, risk, safety, deforestation-free, release or DDS result, it changes no requirement and no case status, and `Complete` is not gated by it. The UI must label decisions with their exact meaning and never as "approved/compliant".
+
+Routes (all authenticated; no PUT/PATCH/DELETE):
+
+| Route | Who | Success |
+| --- | --- | --- |
+| POST `/api/eudr-cases/{caseId}/reviews` | **Owner only** | **201** `ReviewDetail` + `Location` of the GET-by-id route |
+| GET `/api/eudr-cases/{caseId}/reviews` | any member | 200 summaries, newest first (by revision number) |
+| GET `/api/eudr-cases/{caseId}/reviews/{reviewId}` | any member | 200 `ReviewDetail` |
+| GET `/api/eudr-cases/{caseId}/reviews/{reviewId}/export` | any member | 200 `application/zip` (reviewed export) |
+
+Create request:
+
+```json
+{ "decision": "AcceptedAsCompleteUnderPolicy", "rationale": "Checked the recorded facts against the policy.", "expectedFingerprint": "<completeness.fingerprint as loaded>", "expectedLatestReviewId": null }
+```
+
+- `decision` (strings only): `AcceptedAsCompleteUnderPolicy` ("accepted as complete under the versioned Provena pilot completeness policy"), `ConfirmedOutsideRegulatoryScope` (the recorded applicability places the case outside the regulatory scope), `ConfirmedUnsupportedFlow` (the recorded flow is outside the pilot's supported envelope, including the `OtherUnsupported` role), `ReturnedForCorrection` (sends the dossier back; always allowed).
+- `rationale` required, max 4000. `expectedFingerprint` is the `fingerprint` from `GET completeness` that the user was looking at. `expectedLatestReviewId` is `completeness.latestReview.reviewId` as loaded, or `null` when there was no review. Send exactly what was loaded; do not re-fetch silently before posting.
+- **Status codes:** 401 anonymous; **403 for any non-Owner, whatever the case id or body** (an existing, unknown or foreign case and an invalid body all answer 403; a user whose Owner role was removed is denied at once even with an unexpired token - there is nothing to disclose and no 404/400 to interpret); 404 unknown/foreign case; 400 validation (including malformed JSON); 415 non-JSON content type; **409** in these cases: the case is Completed/Archived, the fingerprint or the latest review changed since it was loaded (`Dossier or review history changed since it was loaded` - reload completeness and let the user decide again), or a precondition of a positive decision is not met.
+- **Precondition failures** return 409 with `errors: { reason, failingItems: [{ code, subjectType, subjectId, status, reason }] }`. Show `reason` and the failing items; every failing item code is a real completeness item code from `GET completeness`. `AcceptedAsCompleteUnderPolicy` needs a satisfied `MASTER_DATA_SHIPMENT_MATCH`, applicability `WithinSupportedScope`, no `Missing`/`Invalid`/`AwaitingReview` item (`NotApplicable` is fine) and **no catalogue drift** (stated in `reason`, not as a failing item: refresh the case master data first). `ConfirmedOutsideRegulatoryScope` and `ConfirmedUnsupportedFlow` need a satisfied shipment match and the matching applicability status (a wrong status is explained in `reason`; `ProductChanged` blocks all three positive decisions). `ReturnedForCorrection` has no precondition.
+- **`ReviewDetail`:** `{ reviewId, caseRevisionId, revisionNumber, decision, rationale, reviewerUserId, reviewedAtUtc, policyId, policyVersion, snapshotSchemaVersion, fingerprintVersion, fingerprint, sectionHashes, pins, snapshot }`. `snapshot` is `{ schemaVersion, facts, context, completeness }`: `facts` is what was relied on, `context` is frozen display context (producer/plot names, product name/description, whether a pinned plot revision was already superseded, drift at review time) and `completeness` is the item list evaluated at review time. All of it is stored: it never changes when the live catalogue, labels or documents change later, so show it as "as reviewed on <date>". `pins.documentIds` includes documents withdrawn afterwards.
+- **Summary:** `{ reviewId, caseRevisionId, revisionNumber, decision, reviewerUserId, reviewedAtUtc, policyId, policyVersion, fingerprint, fingerprintVersion }`; order by `revisionNumber` (not by time: timestamps can be equal).
+- **Freshness in `GET completeness`:** `reviewFreshness` is `None` (no review), `Current` or `Stale`; `latestReview` is `null` or `{ reviewId, caseRevisionId, decision, reviewedAtUtc, policyVersion, policyChanged, changedAreas }`. `Stale` means a reviewed fact changed since: `changedAreas` lists `Shipment`, `MasterData`, `Applicability`, `Recipients`, `Lot`, `Requirements` and/or `Evidence`. Not stale: catalogue edits without a case refresh (an advisory only), a context-only refresh, producer/plot renames or active flags, a pinned plot revision superseded later (advisory `PINNED_REVISION_SUPERSEDED`; using the newer revision needs a lot save and then does make the review stale), case status, exports, supplier-request changes. `policyChanged: true` is informational (the review was made under an older policy) and does not make it stale. The pair `latestReview.decision` + `reviewFreshness` is the only "reviewed" state; never present `evidenceReadiness: ReadyForOwnerReview` as reviewed.
+- **Lifecycle:** after the case is Completed or Archived no new review (409), refresh or working-fact write is possible, but reviews, the reviewed export and freshness stay readable, and a review that was `Current` at completion stays `Current`.
+- **Reviewed export** (`GET .../reviews/{reviewId}/export`): `case-{reference}-review-{revisionNumber}/` with `review.json` (the review, the stored snapshot, `exportedAtUtc` and a notice that it is a reviewed snapshot and not a compliance determination, risk assessment or DDS), `plots/{revisionId:N}.geojson` (the exact pinned plot revisions), `documents/...` (the pinned documents, also those withdrawn later) and `geolocation/original.geojson` (the pinned geolocation). It never reflects later changes. The existing working export remains the current working dossier and carries `completeness` and `latestReview`; offer both under clearly different names.
 
 ## 6. Breaking-change notes
 
@@ -171,21 +204,22 @@ Working export (`GET .../export`): the manifest gains `completeness` (the same o
 - Handle 409 (terminal case) by making these editors read-only on Completed/Archived cases.
 - Re-saving unchanged content is safe and idempotent.
 - Add a completeness view per case from `GET .../completeness` (section 5a): show the two live axes separately, list the items grouped by `group` with their `reason`, show advisories as information, and never derive a single pass/fail or compliance badge from them. Refetch after any fact change; compare nothing yet by `fingerprint`.
+- Add a review panel: show `reviewFreshness`, the latest review and its decision, and let an Owner record a review with the exact `fingerprint` and `latestReview.reviewId` that the screen was showing (section 5b); hide the action for non-Owners but still handle 403; on 409 reload completeness. List past reviews from `GET .../reviews` and open them read-only. Never render a review or an `AcceptedAsCompleteUnderPolicy` as "compliant"/"approved".
 
 ## 8. Compatibility risks
 
-- Any authenticated member of an organization can write these facts today; there is no owner-only distinction yet (the Owner review gate arrives with the review commit). Do not infer permissions from the UI.
+- Any authenticated member of an organization can write these facts today; the only Owner-only operation is recording a review (`POST ./reviews`); do not infer permissions from the UI, and note that no API creates a Member yet, so a Member must be provisioned outside the API for the 403 behaviour to be observable.
 - The master-data copy is separate from the live catalogue: displays that mix the two will disagree until a refresh.
 - Supplier/product deletion is now blocked more often (see section 6).
 - The derived applicability `status` can change without a new applicability version when the master-data copy is refreshed (`ProductChanged`).
-- The later completeness and review APIs may add fields to the case-level views; treat unknown JSON fields as additive.
+- Future backend changes may add fields to the case-level views; treat unknown JSON fields as additive.
 
 ## 9. Out-of-scope items
 
-Not implemented: review records and decisions, the Owner review gate, review freshness/staleness, reviewed export, fingerprinting, risk assessment and mitigation, release/approval, DDS and EU Information System submission, downstream/trader workflows, cattle establishments, wood species, composite products, Article 4a, split/merge/processing, coordinate-precision checks. EORI is stored but never evaluated. The working export gained only the additive `completeness`, `latestReview` and `reviewScope` members (section 5a).
+Not implemented: risk assessment and mitigation, any combined "compliant" verdict, membership management (no API creates a Member) and a general permission model, release/approval, DDS and EU Information System submission, downstream/trader workflows, cattle establishments, wood species, composite products, Article 4a, split/merge/processing, coordinate-precision checks. EORI is stored but never evaluated. The working export gained only the additive `completeness`, `latestReview` and `reviewScope` members (section 5a).
 
 ## 10. Backend verification performed
 
-`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1`: Release build 0 warnings / 0 errors, 167 unit tests and 161 integration tests passed, 0 failed, 0 skipped, exit 0 (PostgreSQL 17 via Testcontainers). `dotnet ef migrations has-pending-model-changes` reports none, and the idempotent migration script was reviewed: existing tables change only by `Suppliers.PostalAddress` and the `Documents` alternate key.
+`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1`: Release build 0 warnings / 0 errors, 186 unit tests and 199 integration tests passed, 0 failed, 0 skipped, exit 0 (PostgreSQL 17 via Testcontainers). `dotnet ef migrations has-pending-model-changes` reports none, and the idempotent migration script was reviewed: existing tables change only by `Suppliers.PostalAddress` and the `Documents` alternate key.
 
-Covered by `CompletenessTests` and `CompletenessReadModelTests` (completeness read model, fingerprint, working export), `CompletenessFactsTests` (operator profile, supplier postal address, master-data refresh/idempotency/drift/shipment binding, applicability, recipients, evidence links, terminal-case and ordering rules, serialization), `CompletenessFactsModelTests`, `CompletenessFactsDomainTests`, the `CompletenessFacts` cases in `MigrationTests`, `EndpointInventoryTests` and `HttpContractTests`. No frontend was exercised.
+Covered by `ReviewTests` (unit and HTTP: Owner gate, decisions, optimistic concurrency, PostgreSQL lock tests, freshness, snapshot immutability, reviewed export), `ReviewHistoryModelTests`, the `ReviewedDossierHistory` cases in `MigrationTests`, `CompletenessTests` and `CompletenessReadModelTests` (completeness read model, fingerprint, working export), `CompletenessFactsTests` (operator profile, supplier postal address, master-data refresh/idempotency/drift/shipment binding, applicability, recipients, evidence links, terminal-case and ordering rules, serialization), `CompletenessFactsModelTests`, `CompletenessFactsDomainTests`, the `CompletenessFacts` cases in `MigrationTests`, `EndpointInventoryTests` and `HttpContractTests`. No frontend was exercised.

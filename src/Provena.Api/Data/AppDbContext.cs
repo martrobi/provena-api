@@ -34,6 +34,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
     public DbSet<CaseRecipientStatement> CaseRecipientStatements => Set<CaseRecipientStatement>();
     public DbSet<CaseRecipient> CaseRecipients => Set<CaseRecipient>();
     public DbSet<CaseEvidenceLink> CaseEvidenceLinks => Set<CaseEvidenceLink>();
+    public DbSet<CaseRevision> CaseRevisions => Set<CaseRevision>();
+    public DbSet<CaseRevisionDocument> CaseRevisionDocuments => Set<CaseRevisionDocument>();
+    public DbSet<CaseRevisionEvidenceLink> CaseRevisionEvidenceLinks => Set<CaseRevisionEvidenceLink>();
+    public DbSet<ReviewRecord> ReviewRecords => Set<ReviewRecord>();
     protected override void OnModelCreating(ModelBuilder b)
     {
         base.OnModelCreating(b);
@@ -53,6 +57,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         ConfigureTenant<CaseDossier>(b); ConfigureTenant<CaseLot>(b); ConfigureTenant<LotContribution>(b); ConfigureTenant<ContributionPlot>(b);
         ConfigureTenant<OperatorProfile>(b); ConfigureTenant<CaseMasterDataVersion>(b); ConfigureTenant<CaseApplicability>(b);
         ConfigureTenant<CaseRecipientStatement>(b); ConfigureTenant<CaseRecipient>(b); ConfigureTenant<CaseEvidenceLink>(b);
+        ConfigureTenant<CaseRevision>(b); ConfigureTenant<CaseRevisionDocument>(b); ConfigureTenant<CaseRevisionEvidenceLink>(b); ConfigureTenant<ReviewRecord>(b);
         b.Entity<Supplier>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Product>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Shipment>().HasIndex(x => new { x.OrganizationId, x.ReferenceNumber }).IsUnique();
@@ -162,6 +167,56 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         b.Entity<CaseEvidenceLink>().HasOne<CaseDocument>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.CaseDocumentId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         b.Entity<CaseEvidenceLink>().HasIndex(x => new { x.EudrCaseId, x.CaseDocumentId, x.Purpose }).IsUnique().HasFilter("\"WithdrawnAtUtc\" IS NULL"); // At most one current link per document and purpose.
         b.Entity<CaseEvidenceLink>().Property(x => x.Note).HasMaxLength(1000);
+        // Reviewed dossier history (ADR 0008): immutable revisions pin the reviewed rows through case-consistent composite foreign keys.
+        // Alternate keys: the principal side of every pin FK. The case foreign-key indexes they cover are kept explicitly so the migration stays purely additive.
+        b.Entity<CaseDossier>().HasAlternateKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id });
+        b.Entity<CaseLot>().HasAlternateKey(x => new { x.OrganizationId, x.CaseDossierId, x.Id });
+        b.Entity<GeoSubmission>().HasAlternateKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id });
+        b.Entity<SupplierSubmission>().HasAlternateKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id });
+        b.Entity<CaseApplicability>().HasAlternateKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id });
+        b.Entity<CaseRecipientStatement>().HasAlternateKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id });
+        b.Entity<CaseEvidenceLink>().HasAlternateKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id });
+        b.Entity<CaseMasterDataVersion>().HasAlternateKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id });
+        b.Entity<CaseDossier>().HasIndex(x => new { x.OrganizationId, x.EudrCaseId });
+        b.Entity<CaseLot>().HasIndex(x => new { x.OrganizationId, x.CaseDossierId });
+        b.Entity<GeoSubmission>().HasIndex(x => new { x.OrganizationId, x.EudrCaseId });
+        b.Entity<SupplierSubmission>().HasIndex(x => new { x.OrganizationId, x.EudrCaseId });
+        b.Entity<CaseApplicability>().HasIndex(x => new { x.OrganizationId, x.EudrCaseId });
+        b.Entity<CaseRecipientStatement>().HasIndex(x => new { x.OrganizationId, x.EudrCaseId });
+        b.Entity<CaseMasterDataVersion>().HasIndex(x => new { x.OrganizationId, x.EudrCaseId });
+
+        CaseForeignKey<CaseRevision>(b); CaseForeignKey<CaseRevisionDocument>(b); CaseForeignKey<CaseRevisionEvidenceLink>(b); CaseForeignKey<ReviewRecord>(b);
+        b.Entity<CaseRevision>().HasAlternateKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id });
+        b.Entity<CaseRevision>().HasIndex(x => new { x.EudrCaseId, x.Number }).IsUnique(); // The sequencing invariant: "latest" is the highest Number, never a timestamp.
+        b.Entity<CaseRevision>().HasIndex(x => x.Fingerprint);
+        b.Entity<CaseRevision>().Property(x => x.PolicyId).HasMaxLength(100);
+        b.Entity<CaseRevision>().Property(x => x.PolicyVersion).HasMaxLength(50);
+        b.Entity<CaseRevision>().Property(x => x.Fingerprint).HasMaxLength(64);
+        b.Entity<CaseRevision>().Property(x => x.SectionHashes).HasColumnType("jsonb");
+        b.Entity<CaseRevision>().Property(x => x.SnapshotJson).HasColumnType("jsonb");
+        // Structural integrity only: MATCH SIMPLE would skip the dossier -> lot foreign key on a half-null pair. (That the lot is the CURRENT lot stays a service obligation.)
+        b.Entity<CaseRevision>().ToTable("CaseRevisions", t => t.HasCheckConstraint("CK_CaseRevisions_DossierLotPair",
+            "(\"CaseDossierId\" IS NULL AND \"CaseLotId\" IS NULL) OR (\"CaseDossierId\" IS NOT NULL AND \"CaseLotId\" IS NOT NULL)"));
+        b.Entity<CaseRevision>().HasOne<CaseDossier>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.CaseDossierId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
+        b.Entity<CaseRevision>().HasOne<CaseLot>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.CaseDossierId, x.CaseLotId }).HasPrincipalKey(x => new { x.OrganizationId, x.CaseDossierId, x.Id }).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
+        b.Entity<CaseRevision>().HasOne<CaseApplicability>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.CaseApplicabilityId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
+        b.Entity<CaseRevision>().HasOne<CaseRecipientStatement>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.CaseRecipientStatementId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
+        b.Entity<CaseRevision>().HasOne<CaseMasterDataVersion>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.CaseMasterDataVersionId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
+        b.Entity<CaseRevision>().HasOne<GeoSubmission>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.GeoSubmissionId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
+        b.Entity<CaseRevision>().HasOne<SupplierSubmission>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.SupplierSubmissionId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
+
+        b.Entity<CaseRevisionDocument>().HasOne<CaseRevision>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.CaseRevisionId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CaseRevisionDocument>().HasOne<CaseDocument>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.CaseDocumentId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CaseRevisionDocument>().HasIndex(x => new { x.CaseRevisionId, x.CaseDocumentId }).IsUnique();
+        b.Entity<CaseRevisionEvidenceLink>().HasOne<CaseRevision>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.CaseRevisionId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CaseRevisionEvidenceLink>().HasOne<CaseEvidenceLink>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.CaseEvidenceLinkId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CaseRevisionEvidenceLink>().HasIndex(x => new { x.CaseRevisionId, x.CaseEvidenceLinkId }).IsUnique();
+
+        b.Entity<ReviewRecord>().HasOne<CaseRevision>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.CaseRevisionId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<ReviewRecord>().HasIndex(x => x.CaseRevisionId).IsUnique(); // One review per revision and one revision per review.
+        b.Entity<ReviewRecord>().HasIndex(x => new { x.EudrCaseId, x.ReviewedAtUtc }); // History ordering aid only: deliberately NOT unique (two reviews may share a timestamp).
+        b.Entity<ReviewRecord>().Property(x => x.Rationale).HasMaxLength(4000);
+        b.Entity<ReviewRecord>().Property(x => x.PolicyVersion).HasMaxLength(50);
         foreach (var type in b.Model.GetEntityTypes())
         foreach (var property in type.GetProperties().Where(p => p.ClrType == typeof(string) && p.GetMaxLength() == null && p.GetColumnType() != "jsonb"))
             property.SetMaxLength(4000);
@@ -226,6 +281,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         if (entry.Entity is OperatorProfile && entry.State == EntityState.Deleted)
             throw new InvalidOperationException("The operator profile is never deleted.");
     }
+    // Review history is fully immutable and never deleted: a new decision is a new CaseRevision and ReviewRecord. Application-level only, like the guards above:
+    // other save overloads, bulk writes and raw SQL bypass it (the unique indexes and Restrict foreign keys are the database backstop).
+    private static void EnforceReviewHistoryImmutable(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Entity> entry)
+    {
+        if (entry.State is EntityState.Modified or EntityState.Deleted) throw new InvalidOperationException("Review history is immutable; record a new review.");
+    }
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         foreach (var entry in ChangeTracker.Entries<Entity>())
@@ -234,6 +295,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
                 throw new InvalidOperationException("Audit events are append-only.");
             if (entry.Entity is CaseDocument or GeoSubmission or SupplierSubmission or PlotRevision or CaseLot or CaseMasterDataVersion or CaseApplicability or CaseRecipientStatement or CaseEvidenceLink) EnforceRetainedEvidence(entry);
             if (entry.Entity is CaseRecipient or OperatorProfile) EnforceCompletenessFacts(entry);
+            if (entry.Entity is CaseRevision or CaseRevisionDocument or CaseRevisionEvidenceLink or ReviewRecord) EnforceReviewHistoryImmutable(entry);
             if (entry.Entity is Producer or ProductionPlot) EnforceProvenanceIdentity(entry);
             if (entry.Entity is CaseDossier or LotContribution or ContributionPlot) EnforceDossierImmutable(entry);
             if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted)) continue;

@@ -410,7 +410,7 @@ INSERT INTO "CaseDossiers" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId",
         var seed = await SeedEvidenceAtInitialSchema(db);
         await db.Database.MigrateAsync();
         await InsertDossierGraph(db, seed);
-        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ContributionPlots", "LotContributions", "CaseLots", "CaseDossiers" """);
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "ContributionPlots", "LotContributions", "CaseLots", "CaseDossiers" """);
 
         await db.GetService<IMigrator>().MigrateAsync(ProvenanceMigration);
 
@@ -509,7 +509,7 @@ INSERT INTO "CaseRecipients" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId
     }
     private static async Task ClearCompleteness(AppDbContext db)
     {
-        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "CaseRecipients", "CaseRecipientStatements", "CaseEvidenceLinks", "CaseApplicabilities", "CaseMasterDataVersions", "OperatorProfiles" """);
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "CaseRecipients", "CaseRecipientStatements", "CaseEvidenceLinks", "CaseApplicabilities", "CaseMasterDataVersions", "OperatorProfiles" """);
         await db.Database.ExecuteSqlRawAsync("""UPDATE "Suppliers" SET "PostalAddress" = NULL""");
     }
 
@@ -563,6 +563,142 @@ INSERT INTO "CaseRecipients" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId
         Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM pg_constraint WHERE conname = 'AK_Documents_OrganizationId_Id'""").SingleAsync());
         Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM pg_indexes WHERE indexname = 'IX_Documents_OrganizationId_EudrCaseId'""").SingleAsync());
         foreach (var table in DossierTables.Concat(["Documents", "Suppliers", "Products", "Cases", "Shipments"])) Assert.Equal(1, await Count(db, table));
+    }
+
+    private const string ReviewMigration = "20261013224510_ReviewedDossierHistory";
+    private static readonly string[] ReviewTables = ["CaseRevisions", "CaseRevisionDocuments", "CaseRevisionEvidenceLinks", "ReviewRecords"];
+
+    [Fact]
+    public async Task Clean_database_has_review_history_tables_check_constraint_indexes_alternate_keys_and_restrict_foreign_keys()
+    {
+        await using var db = NewContext();
+        Assert.False(db.Database.HasPendingModelChanges(), "The snapshot must match the DbContext.");
+        await db.Database.MigrateAsync();
+        Assert.Contains(ReviewMigration, await db.Database.GetAppliedMigrationsAsync());
+        var tables = await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_schema = 'public'").ToListAsync();
+        Assert.Subset(tables.ToHashSet(), ReviewTables.ToHashSet());
+        foreach (var column in new[] { "SectionHashes", "SnapshotJson" })
+            Assert.Equal("jsonb", await db.Database.SqlQueryRaw<string>($"SELECT data_type AS \"Value\" FROM information_schema.columns WHERE table_name = 'CaseRevisions' AND column_name = '{column}'").SingleAsync());
+
+        async Task<string> Index(string name) => await db.Database.SqlQueryRaw<string>("SELECT indexdef AS \"Value\" FROM pg_indexes WHERE indexname = {0}", name).SingleAsync();
+        var number = await Index("IX_CaseRevisions_EudrCaseId_Number"); Assert.Contains("UNIQUE", number); Assert.Contains("(\"EudrCaseId\", \"Number\")", number);
+        var oneReview = await Index("IX_ReviewRecords_CaseRevisionId"); Assert.Contains("UNIQUE", oneReview);
+        var timestamp = await Index("IX_ReviewRecords_EudrCaseId_ReviewedAtUtc"); Assert.DoesNotContain("UNIQUE", timestamp); Assert.Contains("(\"EudrCaseId\", \"ReviewedAtUtc\")", timestamp);
+        var fingerprint = await Index("IX_CaseRevisions_Fingerprint"); Assert.DoesNotContain("UNIQUE", fingerprint);
+        foreach (var name in new[] { "IX_CaseRevisionDocuments_CaseRevisionId_CaseDocumentId", "IX_CaseRevisionEvidenceLinks_CaseRevisionId_CaseEvidenceLinkId" }) Assert.Contains("UNIQUE", await Index(name));
+
+        var constraints = await db.Database.SqlQueryRaw<string>("""
+            SELECT conrelid::regclass::text || ' ' || contype::text || ' ' || conname || ' ' || pg_get_constraintdef(oid) AS "Value" FROM pg_constraint
+            WHERE conrelid::regclass::text IN ('"CaseRevisions"', '"CaseRevisionDocuments"', '"CaseRevisionEvidenceLinks"', '"ReviewRecords"', '"CaseDossiers"', '"CaseLots"', '"Geolocations"', '"Submissions"',
+                                                '"CaseApplicabilities"', '"CaseRecipientStatements"', '"CaseEvidenceLinks"', '"CaseMasterDataVersions"')
+            """).ToListAsync();
+        var check = Assert.Single(constraints, c => c.Contains(" c CK_CaseRevisions_DossierLotPair "));
+        Assert.Contains("\"CaseDossierId\" IS NULL", check); Assert.Contains("\"CaseLotId\" IS NULL", check); Assert.Contains("\"CaseDossierId\" IS NOT NULL", check); Assert.Contains("\"CaseLotId\" IS NOT NULL", check);
+        foreach (var key in new[] { "AK_CaseDossiers_OrganizationId_EudrCaseId_Id UNIQUE (\"OrganizationId\", \"EudrCaseId\", \"Id\")", "AK_CaseLots_OrganizationId_CaseDossierId_Id UNIQUE (\"OrganizationId\", \"CaseDossierId\", \"Id\")",
+            "AK_Geolocations_OrganizationId_EudrCaseId_Id UNIQUE (\"OrganizationId\", \"EudrCaseId\", \"Id\")", "AK_Submissions_OrganizationId_EudrCaseId_Id UNIQUE (\"OrganizationId\", \"EudrCaseId\", \"Id\")",
+            "AK_CaseApplicabilities_OrganizationId_EudrCaseId_Id UNIQUE (\"OrganizationId\", \"EudrCaseId\", \"Id\")", "AK_CaseRecipientStatements_OrganizationId_EudrCaseId_Id UNIQUE (\"OrganizationId\", \"EudrCaseId\", \"Id\")",
+            "AK_CaseEvidenceLinks_OrganizationId_EudrCaseId_Id UNIQUE (\"OrganizationId\", \"EudrCaseId\", \"Id\")", "AK_CaseMasterDataVersions_OrganizationId_EudrCaseId_Id UNIQUE (\"OrganizationId\", \"EudrCaseId\", \"Id\")" })
+            Assert.Contains(constraints, c => c.Contains(" u " + key));
+        foreach (var fk in new[] { "(\"OrganizationId\", \"EudrCaseId\", \"CaseDossierId\") REFERENCES \"CaseDossiers\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")", "(\"OrganizationId\", \"CaseDossierId\", \"CaseLotId\") REFERENCES \"CaseLots\"(\"OrganizationId\", \"CaseDossierId\", \"Id\")",
+            "(\"OrganizationId\", \"EudrCaseId\", \"CaseApplicabilityId\") REFERENCES \"CaseApplicabilities\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")", "(\"OrganizationId\", \"EudrCaseId\", \"CaseRecipientStatementId\") REFERENCES \"CaseRecipientStatements\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")",
+            "(\"OrganizationId\", \"EudrCaseId\", \"CaseMasterDataVersionId\") REFERENCES \"CaseMasterDataVersions\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")", "(\"OrganizationId\", \"EudrCaseId\", \"GeoSubmissionId\") REFERENCES \"Geolocations\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")",
+            "(\"OrganizationId\", \"EudrCaseId\", \"SupplierSubmissionId\") REFERENCES \"Submissions\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")", "(\"OrganizationId\", \"EudrCaseId\", \"CaseDocumentId\") REFERENCES \"Documents\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")",
+            "(\"OrganizationId\", \"EudrCaseId\", \"CaseEvidenceLinkId\") REFERENCES \"CaseEvidenceLinks\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")", "(\"OrganizationId\", \"EudrCaseId\", \"CaseRevisionId\") REFERENCES \"CaseRevisions\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")" })
+            Assert.Contains(constraints, c => c.Contains(" f ") && c.Contains(fk));
+        Assert.All(constraints.Where(c => c.Contains(" f ")), f => Assert.Contains("ON DELETE RESTRICT", f));
+        // The migration is additive: earlier completeness tables and the case-owned FK indexes it must not drop are still there.
+        foreach (var name in new[] { "IX_CaseLots_OrganizationId_CaseDossierId", "IX_CaseDossiers_OrganizationId_EudrCaseId", "IX_Geolocations_OrganizationId_EudrCaseId", "IX_Submissions_OrganizationId_EudrCaseId", "IX_CaseApplicabilities_OrganizationId_EudrCaseId",
+            "IX_CaseRecipientStatements_OrganizationId_EudrCaseId", "IX_CaseMasterDataVersions_OrganizationId_EudrCaseId" })
+            Assert.Equal(1, await db.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM pg_indexes WHERE indexname = {0}", name).SingleAsync());
+    }
+
+    [Fact]
+    public async Task Upgrade_from_completeness_facts_keeps_every_row_and_creates_empty_review_tables_without_fabricating_anything()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.GetService<IMigrator>().MigrateAsync(CompletenessMigration);
+        await InsertDossierGraph(db, seed);
+        await InsertCompletenessRow(db, seed, "OperatorProfiles"); await InsertCompletenessRow(db, seed, "CaseMasterDataVersions"); await InsertCompletenessRow(db, seed, "CaseApplicabilities");
+        await InsertCompletenessRow(db, seed, "CaseRecipientStatements"); await InsertCompletenessRow(db, seed, "CaseEvidenceLinks");
+        Assert.Equal(MigratedUpTo(CompletenessMigration), (await db.Database.GetAppliedMigrationsAsync()).ToArray());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('CaseRevisions','CaseRevisionDocuments','CaseRevisionEvidenceLinks','ReviewRecords')").ToListAsync());
+
+        await db.Database.MigrateAsync();
+
+        Assert.Contains(ReviewMigration, await db.Database.GetAppliedMigrationsAsync());
+        foreach (var table in new[] { "Documents", "Geolocations", "Submissions", "Cases", "Shipments", "Suppliers", "Products", "CaseDossiers", "CaseLots", "OperatorProfiles", "CaseMasterDataVersions", "CaseApplicabilities", "CaseRecipientStatements", "CaseEvidenceLinks" })
+            Assert.Equal(1, await Count(db, table));
+        foreach (var table in ReviewTables) Assert.Equal(0, await Count(db, table)); // no revisions, reviews, reviewers or approvals are fabricated
+    }
+    private static string[] MigratedUpTo(string last) => new[] { InitialMigration, RetainedEvidenceMigration, ProvenanceMigration, DossierMigration, CompletenessMigration }.TakeWhile(m => m != last).Append(last).ToArray();
+
+    // Inserts one row of the named review-history table for the seeded case (a revision first where the row needs one).
+    private static async Task InsertReviewRow(AppDbContext db, SeededCase seed, string category)
+    {
+        var org = seed.OrganizationId; var caseId = seed.CaseId; var revision = Guid.NewGuid();
+        await db.Database.ExecuteSqlRawAsync($"""
+INSERT INTO "CaseRevisions" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","Number","PolicyId","PolicyVersion","SnapshotSchemaVersion","FingerprintVersion","Fingerprint","SectionHashes","SnapshotJson") VALUES ('{revision}', now(), now(), '{org}', '{caseId}', 1, 'p', '1', 1, 1, 'f', '[]'::jsonb, '[]'::jsonb)
+""");
+        switch (category)
+        {
+            case "CaseRevisions": break;
+            case "CaseRevisionDocuments":
+                await db.Database.ExecuteSqlRawAsync($"""INSERT INTO "CaseRevisionDocuments" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","CaseRevisionId","CaseDocumentId") SELECT '{Guid.NewGuid()}', now(), now(), '{org}', '{caseId}', '{revision}', d."Id" FROM "Documents" d WHERE d."EudrCaseId" = '{caseId}'"""); break;
+            case "CaseRevisionEvidenceLinks":
+                await InsertCompletenessRow(db, seed, "CaseEvidenceLinks");
+                await db.Database.ExecuteSqlRawAsync($"""INSERT INTO "CaseRevisionEvidenceLinks" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","CaseRevisionId","CaseEvidenceLinkId") SELECT '{Guid.NewGuid()}', now(), now(), '{org}', '{caseId}', '{revision}', l."Id" FROM "CaseEvidenceLinks" l WHERE l."EudrCaseId" = '{caseId}'"""); break;
+            case "ReviewRecords":
+                await db.Database.ExecuteSqlRawAsync($"""INSERT INTO "ReviewRecords" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","CaseRevisionId","Decision","Rationale","ReviewerUserId","ReviewedAtUtc","PolicyVersion") VALUES ('{Guid.NewGuid()}', now(), now(), '{org}', '{caseId}', '{revision}', 3, 'r', '{Guid.NewGuid()}', now(), '1')"""); break;
+            default: throw new ArgumentOutOfRangeException(nameof(category));
+        }
+    }
+
+    [Theory]
+    [InlineData("CaseRevisions")]
+    [InlineData("CaseRevisionDocuments")]
+    [InlineData("CaseRevisionEvidenceLinks")]
+    [InlineData("ReviewRecords")]
+    public async Task Review_history_down_is_refused_for_every_table_and_leaves_schema_and_rows_intact(string category)
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.Database.MigrateAsync();
+        await InsertReviewRow(db, seed, category);
+
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => db.GetService<IMigrator>().MigrateAsync(CompletenessMigration));
+        Assert.Contains("Review history records exist; rollback would destroy history", failure.ToString());
+
+        Assert.Contains(ReviewMigration, await db.Database.GetAppliedMigrationsAsync());
+        var tables = await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_schema = 'public'").ToListAsync();
+        Assert.Subset(tables.ToHashSet(), ReviewTables.ToHashSet());
+        Assert.Equal(1, await Count(db, category));
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM pg_constraint WHERE conname = 'AK_CaseDossiers_OrganizationId_EudrCaseId_Id'""").SingleAsync());
+    }
+
+    [Fact]
+    public async Task Review_history_down_succeeds_when_empty_and_drops_only_its_own_objects()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.Database.MigrateAsync();
+        await InsertDossierGraph(db, seed);
+        await InsertCompletenessRow(db, seed, "CaseApplicabilities"); await InsertCompletenessRow(db, seed, "CaseMasterDataVersions");
+        await InsertReviewRow(db, seed, "ReviewRecords");
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions" """);
+
+        await db.GetService<IMigrator>().MigrateAsync(CompletenessMigration);
+
+        Assert.DoesNotContain(ReviewMigration, await db.Database.GetAppliedMigrationsAsync()); Assert.Contains(CompletenessMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('CaseRevisions','CaseRevisionDocuments','CaseRevisionEvidenceLinks','ReviewRecords')").ToListAsync());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("""SELECT conname AS "Value" FROM pg_constraint WHERE conname IN ('AK_CaseDossiers_OrganizationId_EudrCaseId_Id','AK_CaseLots_OrganizationId_CaseDossierId_Id','AK_Geolocations_OrganizationId_EudrCaseId_Id','AK_Submissions_OrganizationId_EudrCaseId_Id','AK_CaseApplicabilities_OrganizationId_EudrCaseId_Id','AK_CaseRecipientStatements_OrganizationId_EudrCaseId_Id','AK_CaseEvidenceLinks_OrganizationId_EudrCaseId_Id','AK_CaseMasterDataVersions_OrganizationId_EudrCaseId_Id')""").ToListAsync());
+        // The earlier schema, keys, indexes and rows are untouched.
+        Assert.Equal(3, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM pg_constraint WHERE conname IN ('AK_CaseDossiers_OrganizationId_Id','AK_CaseLots_OrganizationId_Id','AK_Documents_OrganizationId_EudrCaseId_Id')""").SingleAsync());
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM pg_indexes WHERE indexname = 'IX_CaseLots_OrganizationId_CaseDossierId'""").SingleAsync());
+        foreach (var table in new[] { "CaseDossiers", "CaseLots", "CaseApplicabilities", "CaseMasterDataVersions", "Documents", "Geolocations", "Submissions" }) Assert.Equal(1, await Count(db, table));
     }
 
 #pragma warning restore EF1002

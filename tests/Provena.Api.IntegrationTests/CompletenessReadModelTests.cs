@@ -18,8 +18,8 @@ namespace Provena.Api.IntegrationTests;
 [Collection("Api")]
 public sealed class CompletenessReadModelTests(ApiFactory factory)
 {
-    private const string Square = """{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}""";
-    private const string Bigger = """{"type":"Polygon","coordinates":[[[0,0],[2,0],[2,2],[0,2],[0,0]]]}""";
+    internal const string Square = """{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}""";
+    internal const string Bigger = """{"type":"Polygon","coordinates":[[[0,0],[2,0],[2,2],[0,2],[0,0]]]}""";
     private const string GeoFile = """{"type":"Polygon","coordinates":[[[-48,-20],[-47,-20],[-47,-19],[-48,-20]]]}""";
 
     private async Task<(HttpClient Client, Guid Org)> Tenant()
@@ -32,16 +32,16 @@ public sealed class CompletenessReadModelTests(ApiFactory factory)
         var c = factory.CreateClient(); c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.AccessToken);
         return (c, org);
     }
-    private static async Task<JsonElement> Json(HttpResponseMessage response, HttpStatusCode? expected = null)
+    internal static async Task<JsonElement> Json(HttpResponseMessage response, HttpStatusCode? expected = null)
     {
         var body = await response.Content.ReadAsStringAsync();
         if (expected.HasValue) Assert.True(expected == response.StatusCode, $"Expected {(int)expected}, got {(int)response.StatusCode}: {body}");
         else Assert.True(response.IsSuccessStatusCode, $"HTTP {(int)response.StatusCode}: {body}");
         return body.Length == 0 ? default : JsonDocument.Parse(body).RootElement.Clone();
     }
-    private static async Task Ok(Task<HttpResponseMessage> request, HttpStatusCode expected = HttpStatusCode.OK) => await Json(await request, expected);
-    private static StringContent Raw(string json) => new(json, Encoding.UTF8, "application/json");
-    private static void AssertNoOrganizationId(JsonElement element)
+    internal static async Task Ok(Task<HttpResponseMessage> request, HttpStatusCode expected = HttpStatusCode.OK) => await Json(await request, expected);
+    internal static StringContent Raw(string json) => new(json, Encoding.UTF8, "application/json");
+    internal static void AssertNoOrganizationId(JsonElement element)
     {
         switch (element.ValueKind)
         {
@@ -58,20 +58,20 @@ public sealed class CompletenessReadModelTests(ApiFactory factory)
     { await using var scope = factory.Services.CreateAsyncScope(); await using var db = TenantDb(scope, org); return await db.AuditEvents.CountAsync(x => x.EudrCaseId == caseId); }
 
     // ---- fixtures -----------------------------------------------------------------------------------------------------------------------
-    private sealed record Opt(bool Profile = true, bool SupplierFacts = true, string Commodity = "Coffee", string Cn = "0901", bool Applicability = true, bool Recipients = true, bool Lot = true, decimal Contribution = 10m,
+    internal sealed record Opt(bool Profile = true, bool SupplierFacts = true, string Commodity = "Coffee", string Cn = "0901", bool Applicability = true, bool Recipients = true, bool Lot = true, decimal Contribution = 10m,
         bool Periods = true, bool Links = true, bool Documents = true, bool Accept = true, string Geometry = Square);
-    private sealed record World(HttpClient C, Guid Org, Guid CaseId, Guid ShipmentId, Guid SupplierId, Guid ProductId, string Reference, Guid ProducerId, Guid PlotId, Guid RevisionId, List<Guid> Docs, List<Guid> Links);
+    internal sealed record World(HttpClient C, Guid Org, Guid CaseId, Guid ShipmentId, Guid SupplierId, Guid ProductId, string Reference, Guid ProducerId, Guid PlotId, Guid RevisionId, List<Guid> Docs, List<Guid> Links);
 
-    private static object Application(string scope = "InScope", string flow = "Supported", string activity = "PlacingOnMarketByImport", bool single = true, string? description = "Green coffee beans") => new
+    internal static object Application(string scope = "InScope", string flow = "Supported", string activity = "PlacingOnMarketByImport", bool single = true, string? description = "Green coffee beans") => new
     {
         productDescription = description, singleRelevantCommodity = single, activityType = activity, operatorRole = "Operator", activityDate = "2026-06-01", activityDateKind = "Planned",
         scopeCitation = "Regulation (EU) 2023/1115, Annex I", legalBasisVersion = "2023/1115 as applicable", effectiveDate = "2026-01-01", reasoning = "Assessed", regulatoryScope = scope, flowSupport = flow,
     };
-    private static MultipartFormDataContent Upload(string name, string type, string text)
+    internal static MultipartFormDataContent Upload(string name, string type, string text)
     { var body = new MultipartFormDataContent(); var file = new ByteArrayContent(Encoding.UTF8.GetBytes(text)); file.Headers.ContentType = new MediaTypeHeaderValue(type); body.Add(file, "file", name); return body; }
-    private static Task<HttpResponseMessage> Patch(HttpClient c, string url, object body) => c.SendAsync(new HttpRequestMessage(HttpMethod.Patch, url) { Content = JsonContent.Create(body) });
+    internal static Task<HttpResponseMessage> Patch(HttpClient c, string url, object body) => c.SendAsync(new HttpRequestMessage(HttpMethod.Patch, url) { Content = JsonContent.Create(body) });
 
-    private static async Task<World> Build(HttpClient c, Guid org, Opt? options = null)
+    internal static async Task<World> Build(HttpClient c, Guid org, Opt? options = null)
     {
         var o = options ?? new Opt(); var tag = Guid.NewGuid().ToString("N")[..8];
         if (o.Profile) await Ok(c.PutAsJsonAsync("/api/operator-profile", new { legalName = "Operator d.o.o.", postalAddress = "Ilica 1, Zagreb", email = "operator@example.test", establishmentCountryCode = "HR" }));
@@ -120,11 +120,11 @@ public sealed class CompletenessReadModelTests(ApiFactory factory)
         return new(c, org, caseId, shipmentId, supplier, product, reference, producer, plot, revision, docs, links);
     }
 
-    private static async Task<JsonElement> Completeness(HttpClient c, Guid caseId) => await Json(await c.GetAsync($"/api/eudr-cases/{caseId}/completeness"), HttpStatusCode.OK);
-    private static JsonElement Item(JsonElement completeness, string code, Guid? subject = null) =>
+    internal static async Task<JsonElement> Completeness(HttpClient c, Guid caseId) => await Json(await c.GetAsync($"/api/eudr-cases/{caseId}/completeness"), HttpStatusCode.OK);
+    internal static JsonElement Item(JsonElement completeness, string code, Guid? subject = null) =>
         completeness.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("code").GetString() == code && (subject == null || (i.GetProperty("subjectId").ValueKind == JsonValueKind.String && i.GetProperty("subjectId").GetGuid() == subject)));
-    private static string StatusOf(JsonElement completeness, string code, Guid? subject = null) => Item(completeness, code, subject).GetProperty("status").GetString()!;
-    private static string Fingerprint(JsonElement completeness) => completeness.GetProperty("fingerprint").GetString()!;
+    internal static string StatusOf(JsonElement completeness, string code, Guid? subject = null) => Item(completeness, code, subject).GetProperty("status").GetString()!;
+    internal static string Fingerprint(JsonElement completeness) => completeness.GetProperty("fingerprint").GetString()!;
 
     [Fact]
     public async Task Completeness_json_uses_string_enums_iso_timestamps_and_the_planned_shape()

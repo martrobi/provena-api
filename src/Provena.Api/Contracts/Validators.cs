@@ -202,3 +202,13 @@ public sealed class CaseEvidenceLinkValidator : AbstractValidator<CaseEvidenceLi
 {
     public CaseEvidenceLinkValidator() { RuleFor(x => x.CaseDocumentId).NotEmpty(); RuleFor(x => x.Purpose).IsInEnum(); RuleFor(x => x.Note).MaximumLength(1000); }
 }
+// Reviewed dossier history (ADR 0008). Runs on the trimmed input. ExpectedFingerprint is the 64-character SHA-256 hex the Owner loaded.
+public sealed class CaseReviewValidator : AbstractValidator<CaseReviewInput>
+{
+    public CaseReviewValidator()
+    {
+        RuleFor(x => x.Decision).IsInEnum();
+        RuleFor(x => x.Rationale).NotEmpty().MaximumLength(4000);
+        RuleFor(x => x.ExpectedFingerprint).NotEmpty().Matches("^[0-9a-f]{64}$").WithMessage("expectedFingerprint must be the 64-character hexadecimal fingerprint returned by the completeness endpoint.");
+    }
+}

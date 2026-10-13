@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Http.Metadata;
 
 namespace Provena.Api.Endpoints;
 
+internal sealed record ManuallyReadJsonBody(Type BodyType, string[] OptionalProperties);
+
 internal static class EndpointConventions
 {
     // Multipart envelope limit; FileValidationService enforces the configured 1-20 MiB per-file limit.
@@ -44,6 +46,10 @@ internal static class EndpointConventions
         string.IsNullOrEmpty(value) ? null
         : Enum.TryParse<TEnum>(value, ignoreCase: true, out var parsed) ? parsed
         : throw new BadHttpRequestException($"Invalid value for parameter \"{parameter}\".");
+
+    // Marks a route whose handler reads its JSON body itself (after authorization) instead of using model binding, so the framework cannot reject the body first.
+    // Unlike Accepts(), it adds no content-type routing constraint (which would answer 415 before the handler runs); OpenAPI advertises the body through an operation transformer.
+    public static TBuilder WithManuallyReadJsonBody<TBody, TBuilder>(this TBuilder builder, params string[] optionalProperties) where TBuilder : IEndpointConventionBuilder => builder.WithMetadata(new ManuallyReadJsonBody(typeof(TBody), optionalProperties));
 
     private sealed record RequestSizeLimit(long? MaxRequestBodySize) : IRequestSizeLimitMetadata;
 }

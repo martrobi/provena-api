@@ -65,13 +65,13 @@ public sealed record CaseRecipientDto(Guid Id, string Name, string PostalAddress
 public sealed record CaseRecipientStatementDto(Guid Id, int Number, RecipientResolution Resolution, string? NotApplicableBasis, List<CaseRecipientDto> Recipients, Guid? CreatedByUserId, DateTimeOffset CreatedAtUtc, DateTimeOffset? SupersededAtUtc);
 public sealed record CaseEvidenceLinkInput(Guid CaseDocumentId, EvidencePurpose Purpose, string? Note);
 public sealed record CaseEvidenceLinkDto(Guid Id, Guid CaseDocumentId, EvidencePurpose Purpose, string? Note, string DocumentFileName, DateTimeOffset? DocumentWithdrawnAtUtc, Guid? CreatedByUserId, DateTimeOffset CreatedAtUtc, DateTimeOffset? WithdrawnAtUtc, Guid? WithdrawnByUserId);
-// Completeness read model (ADR 0008). Computed on every read, never stored. LatestReview is always null until review records exist (a later commit).
+// Completeness read model (ADR 0008). Computed on every read, never stored. LatestReview is null until a review exists.
 public sealed record CompletenessPolicyDto(string Id, string Version, IReadOnlyList<string> Limitations);
 public sealed record CompletenessApplicabilityDto(ApplicabilityStatus Status, Guid? CurrentVersionId);
 public sealed record CompletenessItemDto(string Code, CompletenessGroup Group, string? SubjectType, Guid? SubjectId, CompletenessItemStatus Status, string Reason);
 public sealed record CompletenessAdvisoryDto(string Code, string? Area, Guid? SubjectId, string Message);
 public sealed record CompletenessDto(CompletenessPolicyDto Policy, DateTimeOffset EvaluatedAtUtc, string Fingerprint, int FingerprintVersion, CompletenessApplicabilityDto Applicability,
-    DataCoverage DataCoverage, EvidenceReadiness EvidenceReadiness, ReviewFreshness ReviewFreshness, object? LatestReview, IReadOnlyList<CompletenessAdvisoryDto> Advisories, IReadOnlyList<CompletenessItemDto> Items);
+    DataCoverage DataCoverage, EvidenceReadiness EvidenceReadiness, ReviewFreshness ReviewFreshness, LatestReviewDto? LatestReview, IReadOnlyList<CompletenessAdvisoryDto> Advisories, IReadOnlyList<CompletenessItemDto> Items);
 public static class DtoMaps
 {
     public static DocumentDto ToDto(this CaseDocument d) => new(d.Id, d.OriginalFileName, d.ContentType, d.SizeBytes, d.Category, d.UploadedByType, d.UploadedAtUtc, d.WithdrawnAtUtc);

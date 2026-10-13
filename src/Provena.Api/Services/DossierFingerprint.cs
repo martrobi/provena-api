@@ -52,6 +52,8 @@ public static class DossierFingerprint
         return text == "-0" ? "0" : text;
     }
     private static string Hex(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+    // SHA-256 (lower-case hex) of a pinned revision's stored normalized geometry; the same value is a fingerprinted fact and is stored in review snapshots.
+    public static string GeometrySha256(string geometryJson) => Hex(Encoding.UTF8.GetBytes(geometryJson));
     private static byte[] Write(Action<Utf8JsonWriter> body)
     {
         using var stream = new MemoryStream();
@@ -124,7 +126,7 @@ public static class DossierFingerprint
             {
                 w.WriteStartObject(); Guid_(w, "plotId", l.Link.ProductionPlotId); Guid_(w, "revisionId", l.Link.PlotRevisionId); w.WriteNumber("revisionNumber", l.Revision.Number);
                 Str(w, "countryCode", l.Revision.CountryCode); Enum_(w, "geometryType", l.Revision.GeometryType); Dec(w, "areaHectares", l.Revision.AreaHectares);
-                Str(w, "geometrySha256", Hex(Encoding.UTF8.GetBytes(l.Revision.GeometryJson))); Day(w, "productionStartDate", l.Link.ProductionStartDate); Day(w, "productionEndDate", l.Link.ProductionEndDate);
+                Str(w, "geometrySha256", GeometrySha256(l.Revision.GeometryJson)); Day(w, "productionStartDate", l.Link.ProductionStartDate); Day(w, "productionEndDate", l.Link.ProductionEndDate);
                 w.WriteEndObject();
             }
             w.WriteEndArray(); w.WriteEndObject();

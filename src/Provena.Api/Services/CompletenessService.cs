@@ -5,10 +5,11 @@ using Provena.Api.Contracts;
 using Provena.Api.Data;
 using Provena.Api.Domain;
 namespace Provena.Api.Services;
-// Orchestrates the read-only completeness model of the CURRENT working dossier (ADR 0008): facts -> pure evaluation -> pure fingerprint -> advisories.
-// Computed on every read and never stored; GET writes nothing (no audit, no UpdatedAtUtc). It decides nothing about legal compliance, risk or release,
-// and it never changes the case status or any requirement. Review freshness and the latest review are not available yet (always None / null).
-public sealed class CompletenessService(AppDbContext db, DossierFactsBuilder builder)
+public sealed record CompletenessState(DossierFacts Facts, CompletenessEvaluation Evaluation, FingerprintResult Fingerprint);
+// Orchestrates the read-only completeness model of the CURRENT working dossier (ADR 0008): facts -> pure evaluation -> pure fingerprint -> advisories -> freshness
+// of the latest human review. Computed on every read and never stored; GET writes nothing (no audit, no UpdatedAtUtc). It decides nothing about legal compliance,
+// risk or release, and it never changes the case status or any requirement.
+public sealed class CompletenessService(AppDbContext db, DossierFactsBuilder builder, ReviewFreshnessService freshness)
 {
     // Standalone read: a repeatable-read snapshot gives one coherent view across the builder's queries without taking any lock.
     public async Task<CompletenessDto> Get(Guid caseId, CancellationToken ct)
@@ -18,14 +19,20 @@ public sealed class CompletenessService(AppDbContext db, DossierFactsBuilder bui
         return await Compute(c, ct);
     }
 
+    // Facts, evaluation and fingerprint of the current dossier. Callers that need a coherent view must already hold a transaction (a lock or a snapshot).
+    public async Task<CompletenessState> Evaluate(EudrCase c, CancellationToken ct)
+    {
+        var facts = await builder.Build(c, ct);
+        return new(facts, CompletenessEvaluator.Evaluate(facts), DossierFingerprint.Compute(facts));
+    }
+
     // For callers that already hold a transaction (for example the working export under the case lock).
     public async Task<CompletenessDto> Compute(EudrCase c, CancellationToken ct)
     {
-        var facts = await builder.Build(c, ct);
-        var evaluation = CompletenessEvaluator.Evaluate(facts);
-        var fingerprint = DossierFingerprint.Compute(facts);
-        return new(CompletenessPolicy.Dto(), DateTimeOffset.UtcNow, fingerprint.Fingerprint, fingerprint.Version, new(evaluation.ApplicabilityStatus, facts.Applicability?.Id),
-            evaluation.DataCoverage, evaluation.EvidenceReadiness, ReviewFreshness.None, null, Advisories(facts, c.Status is EudrCaseStatus.Completed or EudrCaseStatus.Archived), evaluation.Items);
+        var state = await Evaluate(c, ct);
+        var (reviewFreshness, latestReview) = await freshness.Resolve(c.Id, state.Facts, ct);
+        return new(CompletenessPolicy.Dto(), DateTimeOffset.UtcNow, state.Fingerprint.Fingerprint, state.Fingerprint.Version, new(state.Evaluation.ApplicabilityStatus, state.Facts.Applicability?.Id),
+            state.Evaluation.DataCoverage, state.Evaluation.EvidenceReadiness, reviewFreshness, latestReview, Advisories(state.Facts, c.Status is EudrCaseStatus.Completed or EudrCaseStatus.Archived), state.Evaluation.Items);
     }
 
     // Advisories never make a case incomplete and never enter the fingerprint.
@@ -36,7 +43,7 @@ public sealed class CompletenessService(AppDbContext db, DossierFactsBuilder bui
         foreach (var drift in facts.Drift)
             advisories.Add(new($"CATALOGUE_DRIFT_{drift.Area.ToString().ToUpperInvariant()}", drift.Area.ToString(), null,
                 $"The {drift.Area.ToString().ToLowerInvariant()} catalogue values changed since the case master data was copied (fields: {string.Join(", ", drift.Fields)}). Advisory only; refresh the case master data to adopt them." + closure));
-        // The case adopted these immutable revisions explicitly; moving to a newer revision needs a deliberate lot save.
+        // The case adopted these immutable revisions explicitly; moving to a newer one needs a deliberate lot save.
         foreach (var revision in facts.Contributions.SelectMany(c => c.Links).Select(l => l.Revision).DistinctBy(r => r.Id).Where(r => r.SupersededAtUtc != null).OrderBy(r => r.Id))
             advisories.Add(new("PINNED_REVISION_SUPERSEDED", "Lot", revision.Id,
                 $"The pinned plot revision {revision.Number} has since been superseded by a newer revision. The case keeps using the pinned one until the lot is saved with another revision." + closure));

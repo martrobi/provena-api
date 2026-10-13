@@ -252,6 +252,7 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<DateTimeOffset?>("SupersededAtUtc").HasColumnType("timestamp with time zone");
             b.HasKey("Id");
             b.HasAlternateKey("OrganizationId", "Id");
+            b.HasAlternateKey("OrganizationId", "EudrCaseId", "Id");
             b.HasIndex("OrganizationId", "EudrCaseId").HasDatabaseName("IX_Submissions_OrganizationId_EudrCaseId");
             b.HasIndex("EudrCaseId").IsUnique().HasDatabaseName("IX_Submissions_EudrCaseId").HasFilter("\"SupersededAtUtc\" IS NULL");
             b.ToTable("Submissions", (string?)null);
@@ -301,6 +302,7 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<DateTimeOffset?>("SupersededAtUtc").HasColumnType("timestamp with time zone");
             b.HasKey("Id");
             b.HasAlternateKey("OrganizationId", "Id");
+            b.HasAlternateKey("OrganizationId", "EudrCaseId", "Id");
             b.HasIndex("OrganizationId", "EudrCaseId").HasDatabaseName("IX_Geolocations_OrganizationId_EudrCaseId");
             b.HasIndex("EudrCaseId").IsUnique().HasDatabaseName("IX_Geolocations_EudrCaseId").HasFilter("\"SupersededAtUtc\" IS NULL");
             b.ToTable("Geolocations", (string?)null);
@@ -374,6 +376,7 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<Guid?>("CreatedByUserId").HasColumnType("uuid");
             b.HasKey("Id");
             b.HasAlternateKey("OrganizationId", "Id");
+            b.HasAlternateKey("OrganizationId", "EudrCaseId", "Id");
             b.HasIndex("EudrCaseId").IsUnique().HasDatabaseName("IX_CaseDossiers_EudrCaseId");
             b.HasIndex("OrganizationId", "EudrCaseId").HasDatabaseName("IX_CaseDossiers_OrganizationId_EudrCaseId");
             b.ToTable("CaseDossiers", (string?)null);
@@ -394,6 +397,7 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<DateTimeOffset?>("SupersededAtUtc").HasColumnType("timestamp with time zone");
             b.HasKey("Id");
             b.HasAlternateKey("OrganizationId", "Id");
+            b.HasAlternateKey("OrganizationId", "CaseDossierId", "Id");
             b.HasIndex("CaseDossierId", "Number").IsUnique().HasDatabaseName("IX_CaseLots_CaseDossierId_Number");
             b.HasIndex("CaseDossierId").IsUnique().HasDatabaseName("IX_CaseLots_CaseDossierId").HasFilter("\"SupersededAtUtc\" IS NULL");
             b.HasIndex("OrganizationId", "LotReference").IsUnique().HasDatabaseName("IX_CaseLots_OrganizationId_LotReference").HasFilter("\"SupersededAtUtc\" IS NULL");
@@ -482,6 +486,7 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<DateTimeOffset?>("SupersededAtUtc").HasColumnType("timestamp with time zone");
             b.HasKey("Id");
             b.HasAlternateKey("OrganizationId", "Id");
+            b.HasAlternateKey("OrganizationId", "EudrCaseId", "Id");
             b.HasIndex("EudrCaseId", "Number").IsUnique().HasDatabaseName("IX_CaseMasterDataVersions_EudrCaseId_Number");
             b.HasIndex("EudrCaseId").IsUnique().HasDatabaseName("IX_CaseMasterDataVersions_EudrCaseId").HasFilter("\"SupersededAtUtc\" IS NULL");
             b.HasIndex("OrganizationId", "EudrCaseId").HasDatabaseName("IX_CaseMasterDataVersions_OrganizationId_EudrCaseId");
@@ -520,6 +525,7 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<DateTimeOffset?>("SupersededAtUtc").HasColumnType("timestamp with time zone");
             b.HasKey("Id");
             b.HasAlternateKey("OrganizationId", "Id");
+            b.HasAlternateKey("OrganizationId", "EudrCaseId", "Id");
             b.HasIndex("EudrCaseId", "Number").IsUnique().HasDatabaseName("IX_CaseApplicabilities_EudrCaseId_Number");
             b.HasIndex("EudrCaseId").IsUnique().HasDatabaseName("IX_CaseApplicabilities_EudrCaseId").HasFilter("\"SupersededAtUtc\" IS NULL");
             b.HasIndex("OrganizationId", "AssessedProductId").HasDatabaseName("IX_CaseApplicabilities_OrganizationId_AssessedProductId");
@@ -540,6 +546,7 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<DateTimeOffset?>("SupersededAtUtc").HasColumnType("timestamp with time zone");
             b.HasKey("Id");
             b.HasAlternateKey("OrganizationId", "Id");
+            b.HasAlternateKey("OrganizationId", "EudrCaseId", "Id");
             b.HasIndex("EudrCaseId", "Number").IsUnique().HasDatabaseName("IX_CaseRecipientStatements_EudrCaseId_Number");
             b.HasIndex("EudrCaseId").IsUnique().HasDatabaseName("IX_CaseRecipientStatements_EudrCaseId").HasFilter("\"SupersededAtUtc\" IS NULL");
             b.HasIndex("OrganizationId", "EudrCaseId").HasDatabaseName("IX_CaseRecipientStatements_OrganizationId_EudrCaseId");
@@ -575,9 +582,98 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<Guid?>("WithdrawnByUserId").HasColumnType("uuid");
             b.HasKey("Id");
             b.HasAlternateKey("OrganizationId", "Id");
+            b.HasAlternateKey("OrganizationId", "EudrCaseId", "Id");
             b.HasIndex("EudrCaseId", "CaseDocumentId", "Purpose").IsUnique().HasDatabaseName("IX_CaseEvidenceLinks_EudrCaseId_CaseDocumentId_Purpose").HasFilter("\"WithdrawnAtUtc\" IS NULL");
             b.HasIndex("OrganizationId", "EudrCaseId", "CaseDocumentId").HasDatabaseName("IX_CaseEvidenceLinks_OrganizationId_EudrCaseId_CaseDocumentId");
             b.ToTable("CaseEvidenceLinks", (string?)null);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseRevision", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<Guid>("EudrCaseId").HasColumnType("uuid");
+            b.Property<int>("Number").HasColumnType("integer");
+            b.Property<Guid?>("CaseDossierId").HasColumnType("uuid");
+            b.Property<Guid?>("CaseLotId").HasColumnType("uuid");
+            b.Property<Guid?>("CaseApplicabilityId").HasColumnType("uuid");
+            b.Property<Guid?>("CaseRecipientStatementId").HasColumnType("uuid");
+            b.Property<Guid?>("CaseMasterDataVersionId").HasColumnType("uuid");
+            b.Property<Guid?>("GeoSubmissionId").HasColumnType("uuid");
+            b.Property<Guid?>("SupplierSubmissionId").HasColumnType("uuid");
+            b.Property<string>("PolicyId").IsRequired().HasMaxLength(100).HasColumnType("character varying(100)");
+            b.Property<string>("PolicyVersion").IsRequired().HasMaxLength(50).HasColumnType("character varying(50)");
+            b.Property<int>("SnapshotSchemaVersion").HasColumnType("integer");
+            b.Property<int>("FingerprintVersion").HasColumnType("integer");
+            b.Property<string>("Fingerprint").IsRequired().HasMaxLength(64).HasColumnType("character varying(64)");
+            b.Property<string>("SectionHashes").IsRequired().HasColumnType("jsonb");
+            b.Property<string>("SnapshotJson").IsRequired().HasColumnType("jsonb");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasAlternateKey("OrganizationId", "EudrCaseId", "Id");
+            b.HasIndex("EudrCaseId", "Number").IsUnique().HasDatabaseName("IX_CaseRevisions_EudrCaseId_Number");
+            b.HasIndex("Fingerprint").HasDatabaseName("IX_CaseRevisions_Fingerprint");
+            b.HasIndex("OrganizationId", "CaseDossierId", "CaseLotId");
+            b.HasIndex("OrganizationId", "EudrCaseId", "CaseApplicabilityId");
+            b.HasIndex("OrganizationId", "EudrCaseId", "CaseDossierId");
+            b.HasIndex("OrganizationId", "EudrCaseId", "CaseMasterDataVersionId");
+            b.HasIndex("OrganizationId", "EudrCaseId", "CaseRecipientStatementId");
+            b.HasIndex("OrganizationId", "EudrCaseId", "GeoSubmissionId");
+            b.HasIndex("OrganizationId", "EudrCaseId", "SupplierSubmissionId");
+            b.ToTable("CaseRevisions", (string?)null, t => { t.HasCheckConstraint("CK_CaseRevisions_DossierLotPair", "(\"CaseDossierId\" IS NULL AND \"CaseLotId\" IS NULL) OR (\"CaseDossierId\" IS NOT NULL AND \"CaseLotId\" IS NOT NULL)"); });
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseRevisionDocument", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<Guid>("EudrCaseId").HasColumnType("uuid");
+            b.Property<Guid>("CaseRevisionId").HasColumnType("uuid");
+            b.Property<Guid>("CaseDocumentId").HasColumnType("uuid");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasIndex("CaseRevisionId", "CaseDocumentId").IsUnique().HasDatabaseName("IX_CaseRevisionDocuments_CaseRevisionId_CaseDocumentId");
+            b.HasIndex("OrganizationId", "EudrCaseId", "CaseDocumentId");
+            b.HasIndex("OrganizationId", "EudrCaseId", "CaseRevisionId");
+            b.ToTable("CaseRevisionDocuments", (string?)null);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseRevisionEvidenceLink", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<Guid>("EudrCaseId").HasColumnType("uuid");
+            b.Property<Guid>("CaseRevisionId").HasColumnType("uuid");
+            b.Property<Guid>("CaseEvidenceLinkId").HasColumnType("uuid");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasIndex("CaseRevisionId", "CaseEvidenceLinkId").IsUnique().HasDatabaseName("IX_CaseRevisionEvidenceLinks_CaseRevisionId_CaseEvidenceLinkId");
+            b.HasIndex("OrganizationId", "EudrCaseId", "CaseEvidenceLinkId");
+            b.HasIndex("OrganizationId", "EudrCaseId", "CaseRevisionId");
+            b.ToTable("CaseRevisionEvidenceLinks", (string?)null);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.ReviewRecord", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<Guid>("EudrCaseId").HasColumnType("uuid");
+            b.Property<Guid>("CaseRevisionId").HasColumnType("uuid");
+            b.Property<int>("Decision").HasColumnType("integer");
+            b.Property<string>("Rationale").IsRequired().HasMaxLength(4000).HasColumnType("character varying(4000)");
+            b.Property<Guid>("ReviewerUserId").HasColumnType("uuid");
+            b.Property<DateTimeOffset>("ReviewedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<string>("PolicyVersion").IsRequired().HasMaxLength(50).HasColumnType("character varying(50)");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasIndex("CaseRevisionId").IsUnique().HasDatabaseName("IX_ReviewRecords_CaseRevisionId");
+            b.HasIndex("EudrCaseId", "ReviewedAtUtc").HasDatabaseName("IX_ReviewRecords_EudrCaseId_ReviewedAtUtc");
+            b.HasIndex("OrganizationId", "EudrCaseId", "CaseRevisionId");
+            b.ToTable("ReviewRecords", (string?)null);
         });
         modelBuilder.Entity("Provena.Api.Domain.AuditEvent", b =>
         {
@@ -752,6 +848,38 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
             b.HasOne("Provena.Api.Domain.EudrCase", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
             b.HasOne("Provena.Api.Domain.CaseDocument", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId", "CaseDocumentId").HasPrincipalKey("OrganizationId", "EudrCaseId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseRevision", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.EudrCase", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.CaseLot", null).WithMany().HasForeignKey("OrganizationId", "CaseDossierId", "CaseLotId").HasPrincipalKey("OrganizationId", "CaseDossierId", "Id").OnDelete(DeleteBehavior.Restrict);
+            b.HasOne("Provena.Api.Domain.CaseApplicability", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId", "CaseApplicabilityId").HasPrincipalKey("OrganizationId", "EudrCaseId", "Id").OnDelete(DeleteBehavior.Restrict);
+            b.HasOne("Provena.Api.Domain.CaseDossier", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId", "CaseDossierId").HasPrincipalKey("OrganizationId", "EudrCaseId", "Id").OnDelete(DeleteBehavior.Restrict);
+            b.HasOne("Provena.Api.Domain.CaseMasterDataVersion", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId", "CaseMasterDataVersionId").HasPrincipalKey("OrganizationId", "EudrCaseId", "Id").OnDelete(DeleteBehavior.Restrict);
+            b.HasOne("Provena.Api.Domain.CaseRecipientStatement", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId", "CaseRecipientStatementId").HasPrincipalKey("OrganizationId", "EudrCaseId", "Id").OnDelete(DeleteBehavior.Restrict);
+            b.HasOne("Provena.Api.Domain.GeoSubmission", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId", "GeoSubmissionId").HasPrincipalKey("OrganizationId", "EudrCaseId", "Id").OnDelete(DeleteBehavior.Restrict);
+            b.HasOne("Provena.Api.Domain.SupplierSubmission", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId", "SupplierSubmissionId").HasPrincipalKey("OrganizationId", "EudrCaseId", "Id").OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseRevisionDocument", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.EudrCase", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.CaseDocument", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId", "CaseDocumentId").HasPrincipalKey("OrganizationId", "EudrCaseId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.CaseRevision", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId", "CaseRevisionId").HasPrincipalKey("OrganizationId", "EudrCaseId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseRevisionEvidenceLink", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.EudrCase", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.CaseEvidenceLink", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId", "CaseEvidenceLinkId").HasPrincipalKey("OrganizationId", "EudrCaseId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.CaseRevision", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId", "CaseRevisionId").HasPrincipalKey("OrganizationId", "EudrCaseId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+        modelBuilder.Entity("Provena.Api.Domain.ReviewRecord", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.EudrCase", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.CaseRevision", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId", "CaseRevisionId").HasPrincipalKey("OrganizationId", "EudrCaseId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
         });
     }
 }

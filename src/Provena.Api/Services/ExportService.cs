@@ -57,7 +57,7 @@ public sealed class ExportService(AppDbContext db, CaseService cases, CaseDossie
                         dossierScope = "Current operator dossier lot at export time; not a reviewed dossier snapshot and not a completeness or compliance determination.",
                         retainedNotIncluded = new { withdrawnDocuments, supersededGeolocations, supersededSupplierSubmissions, supersededLotVersions },
                         completeness = currentCompleteness,
-                        latestReview = (object?)null,
+                        latestReview = currentCompleteness.LatestReview,
                         reviewScope = "Working-current export. Not the reviewed record; use the review export for what was reviewed."
                     }, Json, ct);
                 var summary = zip.CreateEntry(prefix + "summary.csv");

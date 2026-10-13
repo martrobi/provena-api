@@ -62,7 +62,7 @@ builder.Services.AddScoped<CaseService>(); builder.Services.AddScoped<EudrCaseSt
 builder.Services.AddScoped<SupplierRequestService>(); builder.Services.AddSingleton<SupplierTokenService>();
 builder.Services.AddScoped<CaseFileService>(); builder.Services.AddSingleton<FileValidationService>(); builder.Services.AddSingleton<GeoJsonValidationService>();
 builder.Services.AddScoped<ProvenanceService>(); builder.Services.AddScoped<CaseDossierService>();
-builder.Services.AddScoped<DossierFactsBuilder>(); builder.Services.AddScoped<CompletenessService>(); builder.Services.AddScoped<OperatorProfileService>(); builder.Services.AddScoped<CaseMasterDataService>(); builder.Services.AddScoped<CaseApplicabilityService>(); builder.Services.AddScoped<CaseRecipientService>(); builder.Services.AddScoped<CaseEvidenceLinkService>(); builder.Services.AddScoped<ExportService>(); builder.Services.AddScoped<ImportService>(); builder.Services.AddScoped<DevelopmentSeeder>();
+builder.Services.AddScoped<DossierFactsBuilder>(); builder.Services.AddScoped<CompletenessService>(); builder.Services.AddScoped<ReviewFreshnessService>(); builder.Services.AddScoped<ReviewService>(); builder.Services.AddScoped<ReviewReadService>(); builder.Services.AddScoped<ReviewedExportService>(); builder.Services.AddScoped<OperatorProfileService>(); builder.Services.AddScoped<CaseMasterDataService>(); builder.Services.AddScoped<CaseApplicabilityService>(); builder.Services.AddScoped<CaseRecipientService>(); builder.Services.AddScoped<CaseEvidenceLinkService>(); builder.Services.AddScoped<ExportService>(); builder.Services.AddScoped<ImportService>(); builder.Services.AddScoped<DevelopmentSeeder>();
 builder.Services.AddSingleton<IFileStorage, LocalFileStorage>(); builder.Services.AddScoped<IEmailSender, DevelopmentEmailSender>();
 var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 if (origins.Any(x => x == "*")) throw new InvalidOperationException("CORS requires explicit origins.");
@@ -88,7 +88,17 @@ builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document,
             ?? Enumerable.Empty<OpenApiOperation>())
         { operation.Security ??= []; operation.Security.Add(new OpenApiSecurityRequirement { [new OpenApiSecuritySchemeReference("Bearer", document)] = [] }); }
     return Task.CompletedTask;
-}));
+})
+    // Routes that read their JSON body by hand (so authorization can precede parsing) declare it with WithManuallyReadJsonBody; advertise that body here.
+    .AddOperationTransformer(async (operation, context, ct) =>
+    {
+        var marker = context.Description.ActionDescriptor.EndpointMetadata.OfType<ManuallyReadJsonBody>().FirstOrDefault();
+        if (marker == null) return;
+        var schema = await context.GetOrCreateSchemaAsync(marker.BodyType, null, ct);
+        // The generator lists every record parameter as required; properties the handler treats as optional are removed from required[].
+        if (schema is OpenApiSchema concrete) foreach (var optional in marker.OptionalProperties) concrete.Required?.Remove(optional);
+        operation.RequestBody = new OpenApiRequestBody { Required = true, Content = new Dictionary<string, OpenApiMediaType> { ["application/json"] = new OpenApiMediaType { Schema = schema } } };
+    }));
 var app = builder.Build();
 var secret = app.Configuration["Jwt:Secret"];
 if (string.IsNullOrWhiteSpace(secret) || Encoding.UTF8.GetByteCount(secret) < 32 || secret.Contains("SET-USING", StringComparison.OrdinalIgnoreCase))

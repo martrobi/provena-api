@@ -260,6 +260,7 @@ public sealed class HttpContractTests(ApiFactory factory)
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/recipients"), (HttpMethod.Put, $"/api/eudr-cases/{caseId}/recipients"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/recipients-history"),
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/evidence-links"), (HttpMethod.Post, $"/api/eudr-cases/{caseId}/evidence-links"), (HttpMethod.Delete, $"/api/eudr-cases/{caseId}/evidence-links/{id}"),
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/completeness"),
+            (HttpMethod.Post, $"/api/eudr-cases/{caseId}/reviews"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/reviews"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/reviews/{id}"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/reviews/{id}/export"),
         };
         foreach (var (method, path) in requests)
             Assert.True(HttpStatusCode.Unauthorized == (await anonymous.SendAsync(new HttpRequestMessage(method, path))).StatusCode, $"{method} {path}");
@@ -335,6 +336,19 @@ public sealed class HttpContractTests(ApiFactory factory)
         await Problem(await b.GetAsync($"/api/eudr-cases/{caseId}/dossier"), HttpStatusCode.NotFound);
     }
     [Fact]
+    public async Task A_review_request_may_omit_expected_latest_review_id_when_no_review_exists()
+    {
+        var (a, _) = await Tenants(); var caseId = await Case(a); var url = $"/api/eudr-cases/{caseId}/reviews";
+        var fingerprint = (await Json(await a.GetAsync($"/api/eudr-cases/{caseId}/completeness"))).GetProperty("fingerprint").GetString();
+        var omitted = await a.PostAsync(url, RawJson($$"""{"decision":"ReturnedForCorrection","rationale":"No previous review existed.","expectedFingerprint":"{{fingerprint}}"}"""));
+        Assert.Equal(HttpStatusCode.Created, omitted.StatusCode); // the property is optional: omitting it means "no review existed when loaded"
+        // A previous review now exists: null (like omission) no longer matches, only its id does.
+        var nullAgain = await a.PostAsync(url, RawJson($$"""{"decision":"ReturnedForCorrection","rationale":"r","expectedFingerprint":"{{fingerprint}}","expectedLatestReviewId":null}"""));
+        Assert.Equal(HttpStatusCode.Conflict, nullAgain.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await a.PostAsync(url, RawJson($$"""{"decision":"ReturnedForCorrection","rationale":"r","expectedFingerprint":"{{fingerprint}}"}"""))).StatusCode);
+    }
+
+    [Fact]
     public async Task Openapi_document_lists_every_route()
     {
         using var anonymous = factory.CreateClient();
@@ -353,11 +367,21 @@ public sealed class HttpContractTests(ApiFactory factory)
             "/api/eudr-cases/{caseId}/applicability", "/api/eudr-cases/{caseId}/applicability-history", "/api/eudr-cases/{caseId}/recipients", "/api/eudr-cases/{caseId}/recipients-history",
             "/api/eudr-cases/{caseId}/evidence-links", "/api/eudr-cases/{caseId}/evidence-links/{linkId}",
             "/api/eudr-cases/{caseId}/completeness",
+            "/api/eudr-cases/{caseId}/reviews", "/api/eudr-cases/{caseId}/reviews/{reviewId}", "/api/eudr-cases/{caseId}/reviews/{reviewId}/export",
             "/api/import/shipments", "/public/supplier-requests/{token}", "/public/supplier-requests/{token}/details", "/public/supplier-requests/{token}/documents",
             "/public/supplier-requests/{token}/geolocation", "/public/supplier-requests/{token}/complete",
         })
             Assert.Contains(path, paths);
-        Assert.Equal(51, paths.Count);
+        Assert.Equal(54, paths.Count);
+        // The review POST reads its body by hand (so the Owner check precedes parsing); its request body must still be advertised.
+        var reviewPost = document.GetProperty("paths").GetProperty("/api/eudr-cases/{caseId}/reviews").GetProperty("post");
+        Assert.True(reviewPost.GetProperty("requestBody").GetProperty("content").TryGetProperty("application/json", out var reviewBody));
+        var reviewSchema = reviewBody.GetProperty("schema"); // inline: the body is advertised by an operation transformer
+        Assert.Equal(["decision", "expectedFingerprint", "expectedLatestReviewId", "rationale"], reviewSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name).Order().ToArray());
+        Assert.Equal(["decision", "expectedFingerprint", "rationale"], reviewSchema.GetProperty("required").EnumerateArray().Select(x => x.GetString()!).Order().ToArray()); // expectedLatestReviewId is optional
+        Assert.Contains("null", reviewSchema.GetProperty("properties").GetProperty("expectedLatestReviewId").GetRawText()); // and nullable when supplied
+        Assert.True(reviewPost.GetProperty("requestBody").GetProperty("required").GetBoolean());
+        Assert.True(reviewPost.TryGetProperty("security", out _));
         var login = document.GetProperty("paths").GetProperty("/api/auth/login").GetProperty("post");
         Assert.False(login.TryGetProperty("security", out _));
         Assert.True(document.GetProperty("paths").GetProperty("/api/suppliers").GetProperty("get").TryGetProperty("security", out _));
