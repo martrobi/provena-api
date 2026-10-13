@@ -124,6 +124,7 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<string>("Name").IsRequired().HasMaxLength(4000).HasColumnType("character varying(4000)");
             b.Property<string>("ExternalReference").HasMaxLength(4000).HasColumnType("character varying(4000)");
             b.Property<string>("Email").HasMaxLength(4000).HasColumnType("character varying(4000)");
+            b.Property<string>("PostalAddress").HasMaxLength(1000).HasColumnType("character varying(1000)");
             b.Property<string>("ContactPerson").HasMaxLength(4000).HasColumnType("character varying(4000)");
             b.Property<string>("CountryCode").HasMaxLength(4000).HasColumnType("character varying(4000)");
             b.Property<string>("Notes").HasMaxLength(4000).HasColumnType("character varying(4000)");
@@ -276,6 +277,7 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<Guid?>("WithdrawnByUserId").HasColumnType("uuid");
             b.HasKey("Id");
             b.HasAlternateKey("OrganizationId", "Id");
+            b.HasAlternateKey("OrganizationId", "EudrCaseId", "Id");
             b.HasIndex("OrganizationId", "EudrCaseId").HasDatabaseName("IX_Documents_OrganizationId_EudrCaseId");
             b.ToTable("Documents", (string?)null);
         });
@@ -436,6 +438,147 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.HasIndex("OrganizationId", "ProductionPlotId", "PlotRevisionId").HasDatabaseName("IX_ContributionPlots_OrganizationId_ProductionPlotId_PlotRevis~");
             b.ToTable("ContributionPlots", (string?)null);
         });
+        modelBuilder.Entity("Provena.Api.Domain.OperatorProfile", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<string>("LegalName").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
+            b.Property<string>("PostalAddress").IsRequired().HasMaxLength(1000).HasColumnType("character varying(1000)");
+            b.Property<string>("Email").IsRequired().HasMaxLength(256).HasColumnType("character varying(256)");
+            b.Property<string>("EstablishmentCountryCode").IsRequired().HasMaxLength(2).HasColumnType("character varying(2)");
+            b.Property<string>("EoriNumber").HasMaxLength(17).HasColumnType("character varying(17)");
+            b.Property<Guid?>("UpdatedByUserId").HasColumnType("uuid");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasIndex("OrganizationId").IsUnique().HasDatabaseName("IX_OperatorProfiles_OrganizationId");
+            b.ToTable("OperatorProfiles", (string?)null);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseMasterDataVersion", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<Guid>("EudrCaseId").HasColumnType("uuid");
+            b.Property<int>("Number").HasColumnType("integer");
+            b.Property<string>("OperatorLegalName").HasMaxLength(200).HasColumnType("character varying(200)");
+            b.Property<string>("OperatorPostalAddress").HasMaxLength(1000).HasColumnType("character varying(1000)");
+            b.Property<string>("OperatorEmail").HasMaxLength(256).HasColumnType("character varying(256)");
+            b.Property<string>("OperatorEstablishmentCountryCode").HasMaxLength(2).HasColumnType("character varying(2)");
+            b.Property<string>("OperatorEori").HasMaxLength(17).HasColumnType("character varying(17)");
+            b.Property<Guid>("SupplierId").HasColumnType("uuid");
+            b.Property<string>("SupplierName").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
+            b.Property<string>("SupplierPostalAddress").HasMaxLength(1000).HasColumnType("character varying(1000)");
+            b.Property<string>("SupplierEmail").HasMaxLength(256).HasColumnType("character varying(256)");
+            b.Property<string>("SupplierCountryCode").HasMaxLength(2).HasColumnType("character varying(2)");
+            b.Property<Guid>("ProductId").HasColumnType("uuid");
+            b.Property<string>("ProductCnCode").IsRequired().HasMaxLength(10).HasColumnType("character varying(10)");
+            b.Property<int>("ProductCommodity").HasColumnType("integer");
+            b.Property<string>("ProductName").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
+            b.Property<string>("ProductCatalogueDescription").HasMaxLength(4000).HasColumnType("character varying(4000)");
+            b.Property<Guid?>("CreatedByUserId").HasColumnType("uuid");
+            b.Property<DateTimeOffset?>("SupersededAtUtc").HasColumnType("timestamp with time zone");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasIndex("EudrCaseId", "Number").IsUnique().HasDatabaseName("IX_CaseMasterDataVersions_EudrCaseId_Number");
+            b.HasIndex("EudrCaseId").IsUnique().HasDatabaseName("IX_CaseMasterDataVersions_EudrCaseId").HasFilter("\"SupersededAtUtc\" IS NULL");
+            b.HasIndex("OrganizationId", "EudrCaseId").HasDatabaseName("IX_CaseMasterDataVersions_OrganizationId_EudrCaseId");
+            b.HasIndex("OrganizationId", "ProductId").HasDatabaseName("IX_CaseMasterDataVersions_OrganizationId_ProductId");
+            b.HasIndex("OrganizationId", "SupplierId").HasDatabaseName("IX_CaseMasterDataVersions_OrganizationId_SupplierId");
+            b.ToTable("CaseMasterDataVersions", (string?)null);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseApplicability", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<Guid>("EudrCaseId").HasColumnType("uuid");
+            b.Property<int>("Number").HasColumnType("integer");
+            b.Property<Guid>("AssessedProductId").HasColumnType("uuid");
+            b.Property<string>("AssessedCnCode").IsRequired().HasMaxLength(10).HasColumnType("character varying(10)");
+            b.Property<int>("AssessedCommodity").HasColumnType("integer");
+            b.Property<string>("ProductDescription").HasMaxLength(2000).HasColumnType("character varying(2000)");
+            b.Property<bool>("SingleRelevantCommodity").HasColumnType("boolean");
+            b.Property<int>("ActivityType").HasColumnType("integer");
+            b.Property<int>("OperatorRole").HasColumnType("integer");
+            b.Property<string>("OperatorRoleDescription").HasMaxLength(500).HasColumnType("character varying(500)");
+            b.Property<DateOnly?>("ActivityDate").HasColumnType("date");
+            b.Property<int>("ActivityDateKind").HasColumnType("integer");
+            b.Property<string>("ScopeCitation").HasMaxLength(1000).HasColumnType("character varying(1000)");
+            b.Property<string>("Qualifications").HasMaxLength(2000).HasColumnType("character varying(2000)");
+            b.Property<string>("LegalBasisVersion").HasMaxLength(200).HasColumnType("character varying(200)");
+            b.Property<DateOnly?>("EffectiveDate").HasColumnType("date");
+            b.Property<string>("Reasoning").HasMaxLength(4000).HasColumnType("character varying(4000)");
+            b.Property<int>("RegulatoryScope").HasColumnType("integer");
+            b.Property<int>("FlowSupport").HasColumnType("integer");
+            b.Property<Guid?>("DecidedByUserId").HasColumnType("uuid");
+            b.Property<DateTimeOffset?>("DecidedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid?>("CreatedByUserId").HasColumnType("uuid");
+            b.Property<DateTimeOffset?>("SupersededAtUtc").HasColumnType("timestamp with time zone");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasIndex("EudrCaseId", "Number").IsUnique().HasDatabaseName("IX_CaseApplicabilities_EudrCaseId_Number");
+            b.HasIndex("EudrCaseId").IsUnique().HasDatabaseName("IX_CaseApplicabilities_EudrCaseId").HasFilter("\"SupersededAtUtc\" IS NULL");
+            b.HasIndex("OrganizationId", "AssessedProductId").HasDatabaseName("IX_CaseApplicabilities_OrganizationId_AssessedProductId");
+            b.HasIndex("OrganizationId", "EudrCaseId").HasDatabaseName("IX_CaseApplicabilities_OrganizationId_EudrCaseId");
+            b.ToTable("CaseApplicabilities", (string?)null);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseRecipientStatement", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<Guid>("EudrCaseId").HasColumnType("uuid");
+            b.Property<int>("Number").HasColumnType("integer");
+            b.Property<int>("Resolution").HasColumnType("integer");
+            b.Property<string>("NotApplicableBasis").HasMaxLength(2000).HasColumnType("character varying(2000)");
+            b.Property<Guid?>("CreatedByUserId").HasColumnType("uuid");
+            b.Property<DateTimeOffset?>("SupersededAtUtc").HasColumnType("timestamp with time zone");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasIndex("EudrCaseId", "Number").IsUnique().HasDatabaseName("IX_CaseRecipientStatements_EudrCaseId_Number");
+            b.HasIndex("EudrCaseId").IsUnique().HasDatabaseName("IX_CaseRecipientStatements_EudrCaseId").HasFilter("\"SupersededAtUtc\" IS NULL");
+            b.HasIndex("OrganizationId", "EudrCaseId").HasDatabaseName("IX_CaseRecipientStatements_OrganizationId_EudrCaseId");
+            b.ToTable("CaseRecipientStatements", (string?)null);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseRecipient", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<Guid>("CaseRecipientStatementId").HasColumnType("uuid");
+            b.Property<string>("Name").IsRequired().HasMaxLength(200).HasColumnType("character varying(200)");
+            b.Property<string>("PostalAddress").IsRequired().HasMaxLength(1000).HasColumnType("character varying(1000)");
+            b.Property<string>("Email").IsRequired().HasMaxLength(256).HasColumnType("character varying(256)");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasIndex("OrganizationId", "CaseRecipientStatementId").HasDatabaseName("IX_CaseRecipients_OrganizationId_CaseRecipientStatementId");
+            b.ToTable("CaseRecipients", (string?)null);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseEvidenceLink", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<Guid>("EudrCaseId").HasColumnType("uuid");
+            b.Property<Guid>("CaseDocumentId").HasColumnType("uuid");
+            b.Property<int>("Purpose").HasColumnType("integer");
+            b.Property<string>("Note").HasMaxLength(1000).HasColumnType("character varying(1000)");
+            b.Property<Guid?>("CreatedByUserId").HasColumnType("uuid");
+            b.Property<DateTimeOffset?>("WithdrawnAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid?>("WithdrawnByUserId").HasColumnType("uuid");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasIndex("EudrCaseId", "CaseDocumentId", "Purpose").IsUnique().HasDatabaseName("IX_CaseEvidenceLinks_EudrCaseId_CaseDocumentId_Purpose").HasFilter("\"WithdrawnAtUtc\" IS NULL");
+            b.HasIndex("OrganizationId", "EudrCaseId", "CaseDocumentId").HasDatabaseName("IX_CaseEvidenceLinks_OrganizationId_EudrCaseId_CaseDocumentId");
+            b.ToTable("CaseEvidenceLinks", (string?)null);
+        });
         modelBuilder.Entity("Provena.Api.Domain.AuditEvent", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
@@ -576,6 +719,39 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.HasOne("Provena.Api.Domain.LotContribution", null).WithMany().HasForeignKey("OrganizationId", "LotContributionId", "ProducerId").HasPrincipalKey("OrganizationId", "Id", "ProducerId").OnDelete(DeleteBehavior.Restrict).IsRequired();
             b.HasOne("Provena.Api.Domain.ProductionPlot", null).WithMany().HasForeignKey("OrganizationId", "ProducerId", "ProductionPlotId").HasPrincipalKey("OrganizationId", "ProducerId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
             b.HasOne("Provena.Api.Domain.PlotRevision", null).WithMany().HasForeignKey("OrganizationId", "ProductionPlotId", "PlotRevisionId").HasPrincipalKey("OrganizationId", "ProductionPlotId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+        modelBuilder.Entity("Provena.Api.Domain.OperatorProfile", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseMasterDataVersion", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.EudrCase", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.Supplier", null).WithMany().HasForeignKey("OrganizationId", "SupplierId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.Product", null).WithMany().HasForeignKey("OrganizationId", "ProductId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseApplicability", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.EudrCase", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.Product", null).WithMany().HasForeignKey("OrganizationId", "AssessedProductId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseRecipientStatement", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.EudrCase", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseRecipient", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.CaseRecipientStatement", null).WithMany().HasForeignKey("OrganizationId", "CaseRecipientStatementId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseEvidenceLink", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.EudrCase", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.CaseDocument", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId", "CaseDocumentId").HasPrincipalKey("OrganizationId", "EudrCaseId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
         });
     }
 }

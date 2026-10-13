@@ -3,7 +3,7 @@ using Provena.Api.Domain;
 namespace Provena.Api.Contracts;
 public sealed record RegisterRequest(string Email, string Password, string FirstName, string LastName, string OrganizationName, string? Oib);
 public sealed record LoginRequest(string Email, string Password);
-public sealed record SupplierInput(string Name, string? ExternalReference, string? Email, string? ContactPerson, string? CountryCode, string? Notes);
+public sealed record SupplierInput(string Name, string? ExternalReference, string? Email, string? ContactPerson, string? CountryCode, string? Notes, string? PostalAddress = null);
 public sealed record ProductInput(string Name, string? ExternalReference, string CnCode, CommodityType CommodityType, string? Description, bool IsActive = true);
 public sealed record ShipmentInput(string ReferenceNumber, Guid SupplierId, Guid ProductId, decimal Quantity, QuantityUnit Unit, string? OriginCountryCode, DateOnly? ExpectedArrivalDate, DateOnly? ReceivedDate, string? Notes);
 public sealed record SubmissionInput(string? CountryOfProductionCode, DateOnly? ProductionPeriodFrom, DateOnly? ProductionPeriodTo, decimal? ConfirmedQuantity, string? Notes);
@@ -43,6 +43,28 @@ public sealed record ContributionPlotDto(Guid Id, Guid ProductionPlotId, string 
 public sealed record LotContributionDto(Guid Id, Guid ProducerId, string ProducerName, bool ProducerIsActive, decimal Quantity, QuantityUnit Unit, List<ContributionPlotDto> Plots);
 public sealed record CaseLotDto(Guid Id, int Number, string LotReference, decimal Quantity, QuantityUnit Unit, string? Note, QuantityReconciliationDto Reconciliation, List<LotContributionDto> Contributions, Guid? CreatedByUserId, DateTimeOffset CreatedAtUtc, DateTimeOffset? SupersededAtUtc);
 public sealed record CaseDossierDto(Guid Id, Guid EudrCaseId, DateTimeOffset CreatedAtUtc, decimal ShipmentQuantity, QuantityUnit ShipmentUnit, CaseLotDto CurrentLot);
+// Completeness facts (ADR 0008): operator profile, case master-data copy, applicability, recipients, evidence links. No DTO carries OrganizationId.
+public sealed record OperatorProfileInput(string LegalName, string PostalAddress, string Email, string EstablishmentCountryCode, string? EoriNumber);
+public sealed record OperatorProfileDto(Guid Id, string LegalName, string PostalAddress, string Email, string EstablishmentCountryCode, string? EoriNumber, Guid? UpdatedByUserId, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc);
+public sealed record MasterDataOperatorDto(string? LegalName, string? PostalAddress, string? Email, string? EstablishmentCountryCode, string? Eori);
+public sealed record MasterDataSupplierDto(Guid SupplierId, string Name, string? PostalAddress, string? Email, string? CountryCode);
+public sealed record MasterDataProductDto(Guid ProductId, string CnCode, CommodityType Commodity, string Name, string? CatalogueDescription);
+public sealed record CaseMasterDataVersionDto(Guid Id, int Number, MasterDataOperatorDto Operator, MasterDataSupplierDto Supplier, MasterDataProductDto Product, Guid? CreatedByUserId, DateTimeOffset CreatedAtUtc, DateTimeOffset? SupersededAtUtc);
+public enum MasterDataArea { Operator, Supplier, Product }
+public sealed record MasterDataDriftDto(MasterDataArea Area, List<string> Fields);
+public sealed record CaseMasterDataDto(CaseMasterDataVersionDto Current, bool ShipmentMatch, List<MasterDataDriftDto> Drift);
+public sealed record CaseApplicabilityInput(string? ProductDescription, bool SingleRelevantCommodity, ApplicabilityActivityType ActivityType, OperatorRole OperatorRole, string? OperatorRoleDescription,
+    DateOnly? ActivityDate, ActivityDateKind ActivityDateKind, string? ScopeCitation, string? Qualifications, string? LegalBasisVersion, DateOnly? EffectiveDate, string? Reasoning, RegulatoryScope RegulatoryScope, FlowSupport FlowSupport);
+public sealed record CaseApplicabilityVersionDto(Guid Id, int Number, Guid AssessedProductId, string AssessedCnCode, CommodityType AssessedCommodity, string? ProductDescription, bool SingleRelevantCommodity, ApplicabilityActivityType ActivityType,
+    OperatorRole OperatorRole, string? OperatorRoleDescription, DateOnly? ActivityDate, ActivityDateKind ActivityDateKind, string? ScopeCitation, string? Qualifications, string? LegalBasisVersion, DateOnly? EffectiveDate, string? Reasoning,
+    RegulatoryScope RegulatoryScope, FlowSupport FlowSupport, Guid? DecidedByUserId, DateTimeOffset? DecidedAtUtc, Guid? CreatedByUserId, DateTimeOffset CreatedAtUtc, DateTimeOffset? SupersededAtUtc);
+public sealed record CaseApplicabilityDto(ApplicabilityStatus Status, CaseApplicabilityVersionDto Current);
+public sealed record CaseRecipientInput(string Name, string PostalAddress, string Email);
+public sealed record CaseRecipientsInput(RecipientResolution Resolution, string? NotApplicableBasis, List<CaseRecipientInput>? Recipients);
+public sealed record CaseRecipientDto(Guid Id, string Name, string PostalAddress, string Email);
+public sealed record CaseRecipientStatementDto(Guid Id, int Number, RecipientResolution Resolution, string? NotApplicableBasis, List<CaseRecipientDto> Recipients, Guid? CreatedByUserId, DateTimeOffset CreatedAtUtc, DateTimeOffset? SupersededAtUtc);
+public sealed record CaseEvidenceLinkInput(Guid CaseDocumentId, EvidencePurpose Purpose, string? Note);
+public sealed record CaseEvidenceLinkDto(Guid Id, Guid CaseDocumentId, EvidencePurpose Purpose, string? Note, string DocumentFileName, DateTimeOffset? DocumentWithdrawnAtUtc, Guid? CreatedByUserId, DateTimeOffset CreatedAtUtc, DateTimeOffset? WithdrawnAtUtc, Guid? WithdrawnByUserId);
 public static class DtoMaps
 {
     public static DocumentDto ToDto(this CaseDocument d) => new(d.Id, d.OriginalFileName, d.ContentType, d.SizeBytes, d.Category, d.UploadedByType, d.UploadedAtUtc, d.WithdrawnAtUtc);
@@ -55,4 +77,15 @@ public static class DtoMaps
     public static PlotRevisionDto ToDto(this PlotRevision r) { using var geometry = JsonDocument.Parse(r.GeometryJson); return new(r.Id, r.ProductionPlotId, r.Number, r.CountryCode, r.GeometryType, geometry.RootElement.Clone(), r.AreaHectares, r.Note, r.CreatedByUserId, r.CreatedAtUtc, r.SupersededAtUtc); }
     public static ProductionPlotDto ToDto(this ProductionPlot p, PlotRevision current) => new(p.Id, p.ProducerId, p.Name, p.ExternalReference, p.Notes, p.IsActive, p.CreatedAtUtc, p.UpdatedAtUtc, current.ToDto());
     public static ProductionPlotListItem ToListItem(this ProductionPlot p, PlotRevision current) => new(p.Id, p.ProducerId, p.Name, p.ExternalReference, p.IsActive, p.UpdatedAtUtc, current.ToSummaryDto());
+    public static OperatorProfileDto ToDto(this OperatorProfile p) => new(p.Id, p.LegalName, p.PostalAddress, p.Email, p.EstablishmentCountryCode, p.EoriNumber, p.UpdatedByUserId, p.CreatedAtUtc, p.UpdatedAtUtc);
+    public static CaseMasterDataVersionDto ToDto(this CaseMasterDataVersion v) => new(v.Id, v.Number,
+        new(v.OperatorLegalName, v.OperatorPostalAddress, v.OperatorEmail, v.OperatorEstablishmentCountryCode, v.OperatorEori),
+        new(v.SupplierId, v.SupplierName, v.SupplierPostalAddress, v.SupplierEmail, v.SupplierCountryCode),
+        new(v.ProductId, v.ProductCnCode, v.ProductCommodity, v.ProductName, v.ProductCatalogueDescription), v.CreatedByUserId, v.CreatedAtUtc, v.SupersededAtUtc);
+    public static CaseApplicabilityVersionDto ToDto(this CaseApplicability a) => new(a.Id, a.Number, a.AssessedProductId, a.AssessedCnCode, a.AssessedCommodity, a.ProductDescription, a.SingleRelevantCommodity, a.ActivityType,
+        a.OperatorRole, a.OperatorRoleDescription, a.ActivityDate, a.ActivityDateKind, a.ScopeCitation, a.Qualifications, a.LegalBasisVersion, a.EffectiveDate, a.Reasoning,
+        a.RegulatoryScope, a.FlowSupport, a.DecidedByUserId, a.DecidedAtUtc, a.CreatedByUserId, a.CreatedAtUtc, a.SupersededAtUtc);
+    public static CaseRecipientStatementDto ToDto(this CaseRecipientStatement s, IEnumerable<CaseRecipient> recipients) => new(s.Id, s.Number, s.Resolution, s.NotApplicableBasis,
+        recipients.OrderBy(r => r.Name, StringComparer.Ordinal).ThenBy(r => r.PostalAddress, StringComparer.Ordinal).ThenBy(r => r.Email, StringComparer.Ordinal).ThenBy(r => r.Id)
+            .Select(r => new CaseRecipientDto(r.Id, r.Name, r.PostalAddress, r.Email)).ToList(), s.CreatedByUserId, s.CreatedAtUtc, s.SupersededAtUtc);
 }

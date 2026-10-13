@@ -254,6 +254,11 @@ public sealed class HttpContractTests(ApiFactory factory)
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/dossier"), (HttpMethod.Put, $"/api/eudr-cases/{caseId}/dossier/lot"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/dossier/lot-history"),
             (HttpMethod.Get, "/api/production-plots"), (HttpMethod.Post, "/api/production-plots"), (HttpMethod.Get, $"/api/production-plots/{id}"), (HttpMethod.Put, $"/api/production-plots/{id}"),
             (HttpMethod.Get, $"/api/production-plots/{id}/revisions"), (HttpMethod.Post, $"/api/production-plots/{id}/revisions"), (HttpMethod.Get, $"/api/production-plots/{id}/revisions/{id}"),
+            (HttpMethod.Get, "/api/operator-profile"), (HttpMethod.Put, "/api/operator-profile"),
+            (HttpMethod.Get, $"/api/eudr-cases/{caseId}/master-data"), (HttpMethod.Post, $"/api/eudr-cases/{caseId}/master-data/refresh"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/master-data-history"),
+            (HttpMethod.Get, $"/api/eudr-cases/{caseId}/applicability"), (HttpMethod.Put, $"/api/eudr-cases/{caseId}/applicability"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/applicability-history"),
+            (HttpMethod.Get, $"/api/eudr-cases/{caseId}/recipients"), (HttpMethod.Put, $"/api/eudr-cases/{caseId}/recipients"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/recipients-history"),
+            (HttpMethod.Get, $"/api/eudr-cases/{caseId}/evidence-links"), (HttpMethod.Post, $"/api/eudr-cases/{caseId}/evidence-links"), (HttpMethod.Delete, $"/api/eudr-cases/{caseId}/evidence-links/{id}"),
         };
         foreach (var (method, path) in requests)
             Assert.True(HttpStatusCode.Unauthorized == (await anonymous.SendAsync(new HttpRequestMessage(method, path))).StatusCode, $"{method} {path}");
@@ -343,11 +348,14 @@ public sealed class HttpContractTests(ApiFactory factory)
             "/api/eudr-cases/{caseId}/documents/{documentId}", "/api/eudr-cases/{caseId}/geolocation", "/api/eudr-cases/{caseId}/evidence-history", "/api/eudr-cases/{caseId}/geolocation/{geolocationId}/file", "/api/import/suppliers", "/api/import/products",
             "/api/eudr-cases/{caseId}/dossier", "/api/eudr-cases/{caseId}/dossier/lot", "/api/eudr-cases/{caseId}/dossier/lot-history",
             "/api/producers", "/api/producers/{id}", "/api/production-plots", "/api/production-plots/{id}", "/api/production-plots/{plotId}/revisions", "/api/production-plots/{plotId}/revisions/{revisionId}",
+            "/api/operator-profile", "/api/eudr-cases/{caseId}/master-data", "/api/eudr-cases/{caseId}/master-data/refresh", "/api/eudr-cases/{caseId}/master-data-history",
+            "/api/eudr-cases/{caseId}/applicability", "/api/eudr-cases/{caseId}/applicability-history", "/api/eudr-cases/{caseId}/recipients", "/api/eudr-cases/{caseId}/recipients-history",
+            "/api/eudr-cases/{caseId}/evidence-links", "/api/eudr-cases/{caseId}/evidence-links/{linkId}",
             "/api/import/shipments", "/public/supplier-requests/{token}", "/public/supplier-requests/{token}/details", "/public/supplier-requests/{token}/documents",
             "/public/supplier-requests/{token}/geolocation", "/public/supplier-requests/{token}/complete",
         })
             Assert.Contains(path, paths);
-        Assert.Equal(40, paths.Count);
+        Assert.Equal(50, paths.Count);
         var login = document.GetProperty("paths").GetProperty("/api/auth/login").GetProperty("post");
         Assert.False(login.TryGetProperty("security", out _));
         Assert.True(document.GetProperty("paths").GetProperty("/api/suppliers").GetProperty("get").TryGetProperty("security", out _));

@@ -22,7 +22,7 @@ public sealed class SupplierValidator : AbstractValidator<SupplierInput>
     {
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200); RuleFor(x => x.ExternalReference).MaximumLength(100);
         RuleFor(x => x.Email).EmailAddress().MaximumLength(256).When(x => !string.IsNullOrEmpty(x.Email));
-        RuleFor(x => x.ContactPerson).MaximumLength(200); RuleFor(x => x.CountryCode).Matches("^[A-Z]{2}$").When(x => !string.IsNullOrEmpty(x.CountryCode));
+        RuleFor(x => x.PostalAddress).MaximumLength(1000); RuleFor(x => x.ContactPerson).MaximumLength(200); RuleFor(x => x.CountryCode).Matches("^[A-Z]{2}$").When(x => !string.IsNullOrEmpty(x.CountryCode));
         RuleFor(x => x.Notes).MaximumLength(4000);
     }
 }
@@ -136,4 +136,69 @@ public sealed class CaseLotValidator : AbstractValidator<CaseLotInput>
         RuleFor(x => x.Contributions).Must(c => c!.Sum(i => i?.Plots?.Count ?? 0) <= 5000).When(x => x.Contributions != null).WithMessage("At most 5000 plot links are allowed per lot.");
         RuleForEach(x => x.Contributions).Must((lot, c) => c == null || c.Unit == lot.Unit).When(x => x.Contributions != null).WithMessage("Contribution unit must equal the lot unit; units are not converted.");
     }
+}
+// Completeness facts (ADR 0008). Structural / factual validation only: no completeness, sufficiency or legal-compliance rules.
+public sealed class OperatorProfileValidator : AbstractValidator<OperatorProfileInput>
+{
+    public OperatorProfileValidator()
+    {
+        RuleFor(x => x.LegalName).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.PostalAddress).NotEmpty().MaximumLength(1000);
+        RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(256);
+        RuleFor(x => x.EstablishmentCountryCode).NotEmpty().Matches("^[A-Z]{2}$");
+        RuleFor(x => x.EoriNumber).Matches("^[A-Z0-9]{1,17}$").When(x => x.EoriNumber != null);
+    }
+}
+// Runs on the normalized input (trimmed, blank optionals null).
+public sealed class CaseApplicabilityValidator : AbstractValidator<CaseApplicabilityInput>
+{
+    public CaseApplicabilityValidator()
+    {
+        RuleFor(x => x.ActivityType).IsInEnum(); RuleFor(x => x.OperatorRole).IsInEnum(); RuleFor(x => x.ActivityDateKind).IsInEnum();
+        RuleFor(x => x.RegulatoryScope).IsInEnum(); RuleFor(x => x.FlowSupport).IsInEnum();
+        RuleFor(x => x.ProductDescription).MaximumLength(2000); RuleFor(x => x.OperatorRoleDescription).MaximumLength(500);
+        RuleFor(x => x.ScopeCitation).MaximumLength(1000); RuleFor(x => x.Qualifications).MaximumLength(2000);
+        RuleFor(x => x.LegalBasisVersion).MaximumLength(200); RuleFor(x => x.Reasoning).MaximumLength(4000);
+        RuleFor(x => x.OperatorRoleDescription).NotEmpty().When(x => x.OperatorRole == OperatorRole.OtherUnsupported).WithMessage("A description of the operator's role is required when the role is OtherUnsupported.");
+        RuleFor(x => x.OperatorRoleDescription).Null().When(x => x.OperatorRole == OperatorRole.Operator).WithMessage("A role description is only permitted when the role is OtherUnsupported.");
+        RuleFor(x => x.ProductDescription).NotEmpty().When(x => x.RegulatoryScope == RegulatoryScope.InScope).WithMessage("A product description is required when the regulatory scope is InScope.");
+        When(x => x.RegulatoryScope != RegulatoryScope.Pending, () =>
+        {
+            RuleFor(x => x.ScopeCitation).NotEmpty(); RuleFor(x => x.LegalBasisVersion).NotEmpty(); RuleFor(x => x.Reasoning).NotEmpty();
+            RuleFor(x => x.EffectiveDate).NotNull(); RuleFor(x => x.ActivityDate).NotNull();
+        });
+    }
+}
+public sealed class CaseRecipientValidator : AbstractValidator<CaseRecipientInput>
+{
+    public CaseRecipientValidator()
+    {
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(200); RuleFor(x => x.PostalAddress).NotEmpty().MaximumLength(1000);
+        RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(256);
+    }
+}
+// Runs on the normalized input. RecipientsIdentified: 1..50 complete recipients and no basis. NotApplicable: no recipients and a recorded basis.
+public sealed class CaseRecipientsValidator : AbstractValidator<CaseRecipientsInput>
+{
+    public CaseRecipientsValidator()
+    {
+        RuleFor(x => x.Resolution).IsInEnum();
+        RuleFor(x => x.NotApplicableBasis).MaximumLength(2000);
+        RuleFor(x => x.Recipients).NotNull();
+        RuleForEach(x => x.Recipients).NotNull().SetValidator(new CaseRecipientValidator()).When(x => x.Recipients != null);
+        When(x => x.Resolution == RecipientResolution.RecipientsIdentified, () =>
+        {
+            RuleFor(x => x.Recipients).Must(r => r == null || (r.Count >= 1 && r.Count <= 50)).WithMessage("Between 1 and 50 recipients are required when recipients are identified.");
+            RuleFor(x => x.NotApplicableBasis).Null().WithMessage("A not-applicable basis is only permitted when the resolution is NotApplicable.");
+        });
+        When(x => x.Resolution == RecipientResolution.NotApplicable, () =>
+        {
+            RuleFor(x => x.Recipients).Must(r => r == null || r.Count == 0).WithMessage("No recipients may be given when the resolution is NotApplicable.");
+            RuleFor(x => x.NotApplicableBasis).NotEmpty().WithMessage("A basis is required when the resolution is NotApplicable.");
+        });
+    }
+}
+public sealed class CaseEvidenceLinkValidator : AbstractValidator<CaseEvidenceLinkInput>
+{
+    public CaseEvidenceLinkValidator() { RuleFor(x => x.CaseDocumentId).NotEmpty(); RuleFor(x => x.Purpose).IsInEnum(); RuleFor(x => x.Note).MaximumLength(1000); }
 }

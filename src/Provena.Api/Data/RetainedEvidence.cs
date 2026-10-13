@@ -9,4 +9,8 @@ public static class RetainedEvidence
     public static IQueryable<SupplierSubmission> Current(this IQueryable<SupplierSubmission> q) => q.Where(x => x.SupersededAtUtc == null);
     public static IQueryable<PlotRevision> Current(this IQueryable<PlotRevision> q) => q.Where(x => x.SupersededAtUtc == null);
     public static IQueryable<CaseLot> Current(this IQueryable<CaseLot> q) => q.Where(x => x.SupersededAtUtc == null);
+    public static IQueryable<CaseMasterDataVersion> Current(this IQueryable<CaseMasterDataVersion> q) => q.Where(x => x.SupersededAtUtc == null);
+    public static IQueryable<CaseApplicability> Current(this IQueryable<CaseApplicability> q) => q.Where(x => x.SupersededAtUtc == null);
+    public static IQueryable<CaseRecipientStatement> Current(this IQueryable<CaseRecipientStatement> q) => q.Where(x => x.SupersededAtUtc == null);
+    public static IQueryable<CaseEvidenceLink> Current(this IQueryable<CaseEvidenceLink> q) => q.Where(x => x.WithdrawnAtUtc == null);
 }

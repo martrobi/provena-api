@@ -28,7 +28,7 @@ public sealed class CatalogService(AppDbContext db, TenantContext tenant, IValid
     public async Task<Supplier> SaveSupplier(Guid? id, SupplierInput input, CancellationToken ct)
     {
         await suppliers.ValidateAndThrowAsync(input, ct); var s = id.HasValue ? await Supplier(id.Value, ct) : new Supplier { OrganizationId = tenant.OrganizationId };
-        s.Name = input.Name.Trim(); s.Email = NullIfBlank(input.Email); s.ExternalReference = NullIfBlank(input.ExternalReference); s.ContactPerson = input.ContactPerson; s.CountryCode = NullIfBlank(input.CountryCode); s.Notes = input.Notes;
+        s.Name = input.Name.Trim(); s.Email = NullIfBlank(input.Email); s.PostalAddress = NullIfBlank(input.PostalAddress); s.ExternalReference = NullIfBlank(input.ExternalReference); s.ContactPerson = input.ContactPerson; s.CountryCode = NullIfBlank(input.CountryCode); s.Notes = input.Notes;
         if (!id.HasValue) db.Suppliers.Add(s);
         audit.Add(null, id.HasValue ? "SupplierUpdated" : "SupplierCreated", $"Supplier {s.Id} saved.");
         await db.SaveChangesAsync(ct); return s;

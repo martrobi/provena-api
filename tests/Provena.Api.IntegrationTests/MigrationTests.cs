@@ -424,6 +424,147 @@ INSERT INTO "CaseDossiers" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId",
         Assert.Equal(1, await Count(db, "PlotRevisions"));
     }
 
+    private const string CompletenessMigration = "20261013213911_CompletenessFacts";
+    private static readonly string[] CompletenessTables = ["OperatorProfiles", "CaseMasterDataVersions", "CaseApplicabilities", "CaseRecipientStatements", "CaseRecipients", "CaseEvidenceLinks"];
+
+    [Fact]
+    public async Task Clean_database_has_completeness_tables_columns_indexes_keys_and_composite_foreign_keys()
+    {
+        await using var db = NewContext();
+        Assert.False(db.Database.HasPendingModelChanges(), "The snapshot must match the DbContext.");
+        await db.Database.MigrateAsync();
+        Assert.Contains(CompletenessMigration, await db.Database.GetAppliedMigrationsAsync());
+        var tables = await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_schema = 'public'").ToListAsync();
+        Assert.Subset(tables.ToHashSet(), CompletenessTables.ToHashSet());
+        Assert.Equal("character varying(1000):YES", await db.Database.SqlQueryRaw<string>(
+            """SELECT format_type(a.atttypid, a.atttypmod) || ':' || CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS "Value" FROM pg_attribute a WHERE a.attrelid = '"Suppliers"'::regclass AND a.attname = 'PostalAddress'""").SingleAsync());
+        Assert.Equal(["date:YES", "date:YES"], await db.Database.SqlQueryRaw<string>(
+            """SELECT data_type || ':' || is_nullable AS "Value" FROM information_schema.columns WHERE table_name = 'CaseApplicabilities' AND column_name IN ('ActivityDate','EffectiveDate') ORDER BY column_name""").ToListAsync());
+
+        async Task<string> Index(string name) => await db.Database.SqlQueryRaw<string>("SELECT indexdef AS \"Value\" FROM pg_indexes WHERE indexname = {0}", name).SingleAsync();
+        foreach (var name in new[] { "IX_CaseMasterDataVersions_EudrCaseId", "IX_CaseApplicabilities_EudrCaseId", "IX_CaseRecipientStatements_EudrCaseId" })
+        { var def = await Index(name); Assert.Contains("UNIQUE", def); Assert.Contains("SupersededAtUtc\" IS NULL", def); }
+        var link = await Index("IX_CaseEvidenceLinks_EudrCaseId_CaseDocumentId_Purpose");
+        Assert.Contains("UNIQUE", link); Assert.Contains("(\"EudrCaseId\", \"CaseDocumentId\", \"Purpose\")", link); Assert.Contains("WithdrawnAtUtc\" IS NULL", link);
+        foreach (var name in new[] { "IX_CaseMasterDataVersions_EudrCaseId_Number", "IX_CaseApplicabilities_EudrCaseId_Number", "IX_CaseRecipientStatements_EudrCaseId_Number", "IX_OperatorProfiles_OrganizationId" })
+        { var def = await Index(name); Assert.Contains("UNIQUE", def); Assert.DoesNotContain("WHERE", def); }
+        Assert.Contains("IX_Documents_OrganizationId_EudrCaseId", await db.Database.SqlQueryRaw<string>("""SELECT indexname AS "Value" FROM pg_indexes WHERE tablename = 'Documents'""").ToListAsync()); // the pre-existing FK index is kept
+
+        var constraints = await db.Database.SqlQueryRaw<string>("""
+            SELECT conrelid::regclass::text || ' ' || contype::text || ' ' || conname || ' ' || pg_get_constraintdef(oid) AS "Value" FROM pg_constraint
+            WHERE conrelid::regclass::text IN ('"Documents"', '"OperatorProfiles"', '"CaseMasterDataVersions"', '"CaseApplicabilities"', '"CaseRecipientStatements"', '"CaseRecipients"', '"CaseEvidenceLinks"')
+            """).ToListAsync();
+        Assert.Contains(constraints, c => c.Contains("\"Documents\" u AK_Documents_OrganizationId_EudrCaseId_Id UNIQUE (\"OrganizationId\", \"EudrCaseId\", \"Id\")"));
+        Assert.Contains(constraints, c => c.Contains("\"CaseEvidenceLinks\" f") && c.Contains("(\"OrganizationId\", \"EudrCaseId\", \"CaseDocumentId\") REFERENCES \"Documents\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")"));
+        Assert.Contains(constraints, c => c.Contains("\"CaseMasterDataVersions\" f") && c.Contains("(\"OrganizationId\", \"SupplierId\") REFERENCES \"Suppliers\"(\"OrganizationId\", \"Id\")"));
+        Assert.Contains(constraints, c => c.Contains("\"CaseMasterDataVersions\" f") && c.Contains("(\"OrganizationId\", \"ProductId\") REFERENCES \"Products\"(\"OrganizationId\", \"Id\")"));
+        Assert.Contains(constraints, c => c.Contains("\"CaseApplicabilities\" f") && c.Contains("(\"OrganizationId\", \"AssessedProductId\") REFERENCES \"Products\"(\"OrganizationId\", \"Id\")"));
+        Assert.Contains(constraints, c => c.Contains("\"CaseRecipients\" f") && c.Contains("(\"OrganizationId\", \"CaseRecipientStatementId\") REFERENCES \"CaseRecipientStatements\"(\"OrganizationId\", \"Id\")"));
+        foreach (var table in new[] { "CaseMasterDataVersions", "CaseApplicabilities", "CaseRecipientStatements", "CaseEvidenceLinks" })
+            Assert.Contains(constraints, c => c.Contains($"\"{table}\" f") && c.Contains("(\"OrganizationId\", \"EudrCaseId\") REFERENCES \"Cases\"(\"OrganizationId\", \"Id\")"));
+        Assert.All(constraints.Where(c => c.Contains(" f ")), f => Assert.Contains("ON DELETE RESTRICT", f));
+        // No CHECK constraint belongs to this migration (that exception arrives with the review tables).
+        Assert.DoesNotContain(constraints, c => c.Contains(" c "));
+    }
+
+    [Fact]
+    public async Task Upgrade_from_case_dossier_keeps_every_row_and_creates_empty_completeness_tables_without_backfill()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.GetService<IMigrator>().MigrateAsync(DossierMigration);
+        await InsertDossierGraph(db, seed);
+        Assert.Equal([InitialMigration, RetainedEvidenceMigration, ProvenanceMigration, DossierMigration], (await db.Database.GetAppliedMigrationsAsync()).ToArray());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('OperatorProfiles','CaseMasterDataVersions','CaseApplicabilities','CaseRecipientStatements','CaseRecipients','CaseEvidenceLinks')").ToListAsync());
+
+        await db.Database.MigrateAsync();
+
+        Assert.Contains(CompletenessMigration, await db.Database.GetAppliedMigrationsAsync());
+        foreach (var table in new[] { "Documents", "Geolocations", "Submissions", "Cases", "Shipments", "Suppliers", "Products", "Producers", "ProductionPlots", "PlotRevisions", "CaseDossiers", "CaseLots", "LotContributions", "ContributionPlots" })
+            Assert.Equal(1, await Count(db, table));
+        foreach (var table in CompletenessTables) Assert.Equal(0, await Count(db, table));
+        Assert.Equal(0, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM "Suppliers" WHERE "PostalAddress" IS NOT NULL""").SingleAsync());
+    }
+
+    // Inserts one row of the named completeness table (or populates a supplier postal address) for the seeded organization and case.
+    private static async Task InsertCompletenessRow(AppDbContext db, SeededCase seed, string category)
+    {
+        var org = seed.OrganizationId; var caseId = seed.CaseId; var id = Guid.NewGuid();
+        var sql = category switch
+        {
+            "OperatorProfiles" => $"""INSERT INTO "OperatorProfiles" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","LegalName","PostalAddress","Email","EstablishmentCountryCode") VALUES ('{id}', now(), now(), '{org}', 'Op', 'Addr', 'op@example.test', 'HR')""",
+            "CaseMasterDataVersions" => $"""INSERT INTO "CaseMasterDataVersions" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","Number","SupplierId","SupplierName","ProductId","ProductCnCode","ProductCommodity","ProductName") SELECT '{id}', now(), now(), '{org}', '{caseId}', 1, s."Id", 'S', p."Id", '1801', 0, 'P' FROM "Suppliers" s, "Products" p WHERE s."OrganizationId" = '{org}' AND p."OrganizationId" = '{org}'""",
+            "CaseApplicabilities" => $"""INSERT INTO "CaseApplicabilities" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","Number","AssessedProductId","AssessedCnCode","AssessedCommodity","SingleRelevantCommodity","ActivityType","OperatorRole","ActivityDateKind","RegulatoryScope","FlowSupport") SELECT '{id}', now(), now(), '{org}', '{caseId}', 1, p."Id", '1801', 0, true, 0, 0, 0, 0, 0 FROM "Products" p WHERE p."OrganizationId" = '{org}'""",
+            "CaseRecipientStatements" => $"""INSERT INTO "CaseRecipientStatements" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","Number","Resolution","NotApplicableBasis") VALUES ('{id}', now(), now(), '{org}', '{caseId}', 1, 1, 'basis')""",
+            "CaseRecipients" => $"""
+INSERT INTO "CaseRecipientStatements" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","Number","Resolution") VALUES ('{id}', now(), now(), '{org}', '{caseId}', 1, 0);
+INSERT INTO "CaseRecipients" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","CaseRecipientStatementId","Name","PostalAddress","Email") VALUES ('{Guid.NewGuid()}', now(), now(), '{org}', '{id}', 'N', 'A', 'r@example.test')
+""",
+            "CaseEvidenceLinks" => $"""INSERT INTO "CaseEvidenceLinks" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","CaseDocumentId","Purpose") SELECT '{id}', now(), now(), '{org}', '{caseId}', d."Id", 0 FROM "Documents" d WHERE d."EudrCaseId" = '{caseId}'""",
+            "Suppliers.PostalAddress" => $"""UPDATE "Suppliers" SET "PostalAddress" = 'Street 1' WHERE "OrganizationId" = '{org}'""",
+            _ => throw new ArgumentOutOfRangeException(nameof(category)),
+        };
+        await db.Database.ExecuteSqlRawAsync(sql);
+    }
+    private static async Task ClearCompleteness(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "CaseRecipients", "CaseRecipientStatements", "CaseEvidenceLinks", "CaseApplicabilities", "CaseMasterDataVersions", "OperatorProfiles" """);
+        await db.Database.ExecuteSqlRawAsync("""UPDATE "Suppliers" SET "PostalAddress" = NULL""");
+    }
+
+    [Theory]
+    [InlineData("OperatorProfiles")]
+    [InlineData("CaseMasterDataVersions")]
+    [InlineData("CaseApplicabilities")]
+    [InlineData("CaseRecipientStatements")]
+    [InlineData("CaseRecipients")]
+    [InlineData("CaseEvidenceLinks")]
+    [InlineData("Suppliers.PostalAddress")]
+    public async Task Completeness_down_is_refused_for_every_category_and_leaves_schema_and_rows_intact(string category)
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.Database.MigrateAsync();
+        await InsertCompletenessRow(db, seed, category);
+
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => db.GetService<IMigrator>().MigrateAsync(DossierMigration));
+        Assert.Contains("Completeness fact records exist; rollback would destroy history", failure.ToString());
+
+        Assert.Contains(CompletenessMigration, await db.Database.GetAppliedMigrationsAsync());
+        var tables = await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_schema = 'public'").ToListAsync();
+        Assert.Subset(tables.ToHashSet(), CompletenessTables.ToHashSet());
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM pg_constraint WHERE conname = 'AK_Documents_OrganizationId_EudrCaseId_Id'""").SingleAsync());
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM information_schema.columns WHERE table_name = 'Suppliers' AND column_name = 'PostalAddress'""").SingleAsync());
+        if (category == "Suppliers.PostalAddress") Assert.Equal("Street 1", await db.Database.SqlQueryRaw<string>("""SELECT "PostalAddress" AS "Value" FROM "Suppliers" """).SingleAsync());
+        else Assert.Equal(1, await Count(db, category));
+    }
+
+    [Fact]
+    public async Task Completeness_down_succeeds_when_empty_and_drops_only_its_own_objects()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.Database.MigrateAsync();
+        await InsertDossierGraph(db, seed);
+        // Rows may have existed and been removed administratively; only an empty state may roll back.
+        foreach (var category in new[] { "OperatorProfiles", "CaseMasterDataVersions", "CaseApplicabilities", "CaseRecipients", "CaseEvidenceLinks", "Suppliers.PostalAddress" }) await InsertCompletenessRow(db, seed, category);
+        await ClearCompleteness(db);
+
+        await db.GetService<IMigrator>().MigrateAsync(DossierMigration);
+
+        Assert.DoesNotContain(CompletenessMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('OperatorProfiles','CaseMasterDataVersions','CaseApplicabilities','CaseRecipientStatements','CaseRecipients','CaseEvidenceLinks')").ToListAsync());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("""SELECT conname AS "Value" FROM pg_constraint WHERE conname = 'AK_Documents_OrganizationId_EudrCaseId_Id'""").ToListAsync());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("""SELECT column_name AS "Value" FROM information_schema.columns WHERE table_name = 'Suppliers' AND column_name = 'PostalAddress'""").ToListAsync());
+        // Earlier schema, keys and rows are untouched.
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM pg_constraint WHERE conname = 'AK_Documents_OrganizationId_Id'""").SingleAsync());
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM pg_indexes WHERE indexname = 'IX_Documents_OrganizationId_EudrCaseId'""").SingleAsync());
+        foreach (var table in DossierTables.Concat(["Documents", "Suppliers", "Products", "Cases", "Shipments"])) Assert.Equal(1, await Count(db, table));
+    }
+
 #pragma warning restore EF1002
 
     [Fact]

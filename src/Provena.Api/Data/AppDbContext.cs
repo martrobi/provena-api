@@ -28,6 +28,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
     public DbSet<CaseLot> CaseLots => Set<CaseLot>();
     public DbSet<LotContribution> LotContributions => Set<LotContribution>();
     public DbSet<ContributionPlot> ContributionPlots => Set<ContributionPlot>();
+    public DbSet<OperatorProfile> OperatorProfiles => Set<OperatorProfile>();
+    public DbSet<CaseMasterDataVersion> CaseMasterDataVersions => Set<CaseMasterDataVersion>();
+    public DbSet<CaseApplicability> CaseApplicabilities => Set<CaseApplicability>();
+    public DbSet<CaseRecipientStatement> CaseRecipientStatements => Set<CaseRecipientStatement>();
+    public DbSet<CaseRecipient> CaseRecipients => Set<CaseRecipient>();
+    public DbSet<CaseEvidenceLink> CaseEvidenceLinks => Set<CaseEvidenceLink>();
     protected override void OnModelCreating(ModelBuilder b)
     {
         base.OnModelCreating(b);
@@ -45,6 +51,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         ConfigureTenant<SupplierSubmission>(b); ConfigureTenant<CaseDocument>(b); ConfigureTenant<GeoSubmission>(b); ConfigureTenant<AuditEvent>(b);
         ConfigureTenant<Producer>(b); ConfigureTenant<ProductionPlot>(b); ConfigureTenant<PlotRevision>(b);
         ConfigureTenant<CaseDossier>(b); ConfigureTenant<CaseLot>(b); ConfigureTenant<LotContribution>(b); ConfigureTenant<ContributionPlot>(b);
+        ConfigureTenant<OperatorProfile>(b); ConfigureTenant<CaseMasterDataVersion>(b); ConfigureTenant<CaseApplicability>(b);
+        ConfigureTenant<CaseRecipientStatement>(b); ConfigureTenant<CaseRecipient>(b); ConfigureTenant<CaseEvidenceLink>(b);
         b.Entity<Supplier>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Product>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Shipment>().HasIndex(x => new { x.OrganizationId, x.ReferenceNumber }).IsUnique();
@@ -101,6 +109,59 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         b.Entity<ContributionPlot>().HasOne<ProductionPlot>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ProducerId, x.ProductionPlotId }).HasPrincipalKey(x => new { x.OrganizationId, x.ProducerId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         b.Entity<ContributionPlot>().HasOne<PlotRevision>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ProductionPlotId, x.PlotRevisionId }).HasPrincipalKey(x => new { x.OrganizationId, x.ProductionPlotId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         b.Entity<ContributionPlot>().HasIndex(x => new { x.LotContributionId, x.ProductionPlotId }).IsUnique();
+
+        // Completeness facts (ADR 0008): operator profile, case master-data copy, applicability, recipients and evidence links.
+        b.Entity<Supplier>().Property(x => x.PostalAddress).HasMaxLength(1000);
+        b.Entity<OperatorProfile>().HasIndex(x => x.OrganizationId).IsUnique(); // One profile per organization.
+        b.Entity<OperatorProfile>().Property(x => x.LegalName).HasMaxLength(200);
+        b.Entity<OperatorProfile>().Property(x => x.PostalAddress).HasMaxLength(1000);
+        b.Entity<OperatorProfile>().Property(x => x.Email).HasMaxLength(256);
+        b.Entity<OperatorProfile>().Property(x => x.EstablishmentCountryCode).HasMaxLength(2);
+        b.Entity<OperatorProfile>().Property(x => x.EoriNumber).HasMaxLength(17);
+
+        CaseForeignKey<CaseMasterDataVersion>(b); CaseForeignKey<CaseApplicability>(b); CaseForeignKey<CaseRecipientStatement>(b); CaseForeignKey<CaseEvidenceLink>(b);
+        b.Entity<CaseMasterDataVersion>().HasOne<Supplier>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.SupplierId }).HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CaseMasterDataVersion>().HasOne<Product>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ProductId }).HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CaseMasterDataVersion>().HasIndex(x => new { x.EudrCaseId, x.Number }).IsUnique();
+        b.Entity<CaseMasterDataVersion>().HasIndex(x => x.EudrCaseId).IsUnique().HasFilter("\"SupersededAtUtc\" IS NULL"); // At most one current copy per case.
+        b.Entity<CaseMasterDataVersion>().Property(x => x.OperatorLegalName).HasMaxLength(200);
+        b.Entity<CaseMasterDataVersion>().Property(x => x.OperatorPostalAddress).HasMaxLength(1000);
+        b.Entity<CaseMasterDataVersion>().Property(x => x.OperatorEmail).HasMaxLength(256);
+        b.Entity<CaseMasterDataVersion>().Property(x => x.OperatorEstablishmentCountryCode).HasMaxLength(2);
+        b.Entity<CaseMasterDataVersion>().Property(x => x.OperatorEori).HasMaxLength(17);
+        b.Entity<CaseMasterDataVersion>().Property(x => x.SupplierName).HasMaxLength(200);
+        b.Entity<CaseMasterDataVersion>().Property(x => x.SupplierPostalAddress).HasMaxLength(1000);
+        b.Entity<CaseMasterDataVersion>().Property(x => x.SupplierEmail).HasMaxLength(256);
+        b.Entity<CaseMasterDataVersion>().Property(x => x.SupplierCountryCode).HasMaxLength(2);
+        b.Entity<CaseMasterDataVersion>().Property(x => x.ProductCnCode).HasMaxLength(10);
+        b.Entity<CaseMasterDataVersion>().Property(x => x.ProductName).HasMaxLength(200);
+
+        b.Entity<CaseApplicability>().HasOne<Product>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.AssessedProductId }).HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CaseApplicability>().HasIndex(x => new { x.EudrCaseId, x.Number }).IsUnique();
+        b.Entity<CaseApplicability>().HasIndex(x => x.EudrCaseId).IsUnique().HasFilter("\"SupersededAtUtc\" IS NULL"); // At most one current version per case.
+        b.Entity<CaseApplicability>().Property(x => x.AssessedCnCode).HasMaxLength(10);
+        b.Entity<CaseApplicability>().Property(x => x.ProductDescription).HasMaxLength(2000);
+        b.Entity<CaseApplicability>().Property(x => x.OperatorRoleDescription).HasMaxLength(500);
+        b.Entity<CaseApplicability>().Property(x => x.ScopeCitation).HasMaxLength(1000);
+        b.Entity<CaseApplicability>().Property(x => x.Qualifications).HasMaxLength(2000);
+        b.Entity<CaseApplicability>().Property(x => x.LegalBasisVersion).HasMaxLength(200);
+        b.Entity<CaseApplicability>().Property(x => x.Reasoning).HasMaxLength(4000);
+
+        b.Entity<CaseRecipientStatement>().HasIndex(x => new { x.EudrCaseId, x.Number }).IsUnique();
+        b.Entity<CaseRecipientStatement>().HasIndex(x => x.EudrCaseId).IsUnique().HasFilter("\"SupersededAtUtc\" IS NULL"); // At most one current statement per case.
+        b.Entity<CaseRecipientStatement>().Property(x => x.NotApplicableBasis).HasMaxLength(2000);
+        b.Entity<CaseRecipient>().HasOne<CaseRecipientStatement>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.CaseRecipientStatementId }).HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CaseRecipient>().Property(x => x.Name).HasMaxLength(200);
+        b.Entity<CaseRecipient>().Property(x => x.PostalAddress).HasMaxLength(1000);
+        b.Entity<CaseRecipient>().Property(x => x.Email).HasMaxLength(256);
+
+        // Alternate key that lets an evidence link prove in the database that its document belongs to the link's own case.
+        b.Entity<CaseDocument>().HasAlternateKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id });
+        // EF would otherwise drop this FK-supporting index as redundant with the new key; keep it so the migration stays purely additive.
+        b.Entity<CaseDocument>().HasIndex(x => new { x.OrganizationId, x.EudrCaseId });
+        b.Entity<CaseEvidenceLink>().HasOne<CaseDocument>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.CaseDocumentId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CaseEvidenceLink>().HasIndex(x => new { x.EudrCaseId, x.CaseDocumentId, x.Purpose }).IsUnique().HasFilter("\"WithdrawnAtUtc\" IS NULL"); // At most one current link per document and purpose.
+        b.Entity<CaseEvidenceLink>().Property(x => x.Note).HasMaxLength(1000);
         foreach (var type in b.Model.GetEntityTypes())
         foreach (var property in type.GetProperties().Where(p => p.ClrType == typeof(string) && p.GetMaxLength() == null && p.GetColumnType() != "jsonb"))
             property.SetMaxLength(4000);
@@ -126,6 +187,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         [typeof(SupplierSubmission)] = (nameof(SupplierSubmission.SupersededAtUtc), []),
         [typeof(PlotRevision)] = (nameof(PlotRevision.SupersededAtUtc), []),
         [typeof(CaseLot)] = (nameof(CaseLot.SupersededAtUtc), []),
+        [typeof(CaseMasterDataVersion)] = (nameof(CaseMasterDataVersion.SupersededAtUtc), []),
+        [typeof(CaseApplicability)] = (nameof(CaseApplicability.SupersededAtUtc), []),
+        [typeof(CaseRecipientStatement)] = (nameof(CaseRecipientStatement.SupersededAtUtc), []),
+        [typeof(CaseEvidenceLink)] = (nameof(CaseEvidenceLink.WithdrawnAtUtc), [nameof(CaseEvidenceLink.WithdrawnByUserId)]),
     };
     private static void EnforceRetainedEvidence(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Entity> entry)
     {
@@ -152,13 +217,23 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         if (entry.State is EntityState.Modified or EntityState.Deleted)
             throw new InvalidOperationException("Case dossier rows are immutable; save a new lot version.");
     }
+    // Recipient rows of a statement version are fully immutable and never deleted (a new fact = a new statement version).
+    // The operator profile is mutable catalogue-like data, but its deletion is rejected. Application-level only, like the guards above.
+    private static void EnforceCompletenessFacts(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Entity> entry)
+    {
+        if (entry.Entity is CaseRecipient && entry.State is EntityState.Modified or EntityState.Deleted)
+            throw new InvalidOperationException("Case recipients are immutable; save a new recipient statement version.");
+        if (entry.Entity is OperatorProfile && entry.State == EntityState.Deleted)
+            throw new InvalidOperationException("The operator profile is never deleted.");
+    }
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         foreach (var entry in ChangeTracker.Entries<Entity>())
         {
             if (entry.Entity is AuditEvent && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Audit events are append-only.");
-            if (entry.Entity is CaseDocument or GeoSubmission or SupplierSubmission or PlotRevision or CaseLot) EnforceRetainedEvidence(entry);
+            if (entry.Entity is CaseDocument or GeoSubmission or SupplierSubmission or PlotRevision or CaseLot or CaseMasterDataVersion or CaseApplicability or CaseRecipientStatement or CaseEvidenceLink) EnforceRetainedEvidence(entry);
+            if (entry.Entity is CaseRecipient or OperatorProfile) EnforceCompletenessFacts(entry);
             if (entry.Entity is Producer or ProductionPlot) EnforceProvenanceIdentity(entry);
             if (entry.Entity is CaseDossier or LotContribution or ContributionPlot) EnforceDossierImmutable(entry);
             if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted)) continue;

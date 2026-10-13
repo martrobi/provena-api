@@ -61,7 +61,8 @@ builder.Services.AddScoped<AuthService>(); builder.Services.AddScoped<CatalogSer
 builder.Services.AddScoped<CaseService>(); builder.Services.AddScoped<EudrCaseStatusService>(); builder.Services.AddScoped<AuditService>();
 builder.Services.AddScoped<SupplierRequestService>(); builder.Services.AddSingleton<SupplierTokenService>();
 builder.Services.AddScoped<CaseFileService>(); builder.Services.AddSingleton<FileValidationService>(); builder.Services.AddSingleton<GeoJsonValidationService>();
-builder.Services.AddScoped<ProvenanceService>(); builder.Services.AddScoped<CaseDossierService>(); builder.Services.AddScoped<ExportService>(); builder.Services.AddScoped<ImportService>(); builder.Services.AddScoped<DevelopmentSeeder>();
+builder.Services.AddScoped<ProvenanceService>(); builder.Services.AddScoped<CaseDossierService>();
+builder.Services.AddScoped<OperatorProfileService>(); builder.Services.AddScoped<CaseMasterDataService>(); builder.Services.AddScoped<CaseApplicabilityService>(); builder.Services.AddScoped<CaseRecipientService>(); builder.Services.AddScoped<CaseEvidenceLinkService>(); builder.Services.AddScoped<ExportService>(); builder.Services.AddScoped<ImportService>(); builder.Services.AddScoped<DevelopmentSeeder>();
 builder.Services.AddSingleton<IFileStorage, LocalFileStorage>(); builder.Services.AddScoped<IEmailSender, DevelopmentEmailSender>();
 var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 if (origins.Any(x => x == "*")) throw new InvalidOperationException("CORS requires explicit origins.");
