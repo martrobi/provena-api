@@ -2,7 +2,7 @@
 
 - Date: 2026-10-13
 - Decision status: Accepted
-- Implementation status: Partial. The persistence model, guards, plot geometry validation and migration `ProductionProvenance` are implemented. The internal API and the attribution of case lots/quantities to plot revisions are not implemented.
+- Implementation status: Partial. The persistence model, guards, plot geometry validation, migration `ProductionProvenance` and the internal authenticated producer/plot/revision API (`ProvenanceService`) are implemented. Attribution of case lots/quantities to plot revisions (a later slice) is not.
 - Decision owner / approval evidence: Owner approval of `docs/plans/2026-10-production-provenance.md` (2026-10-13): D1 approved with clarification (producer-scoped plot registration), D2 approved as recommended, D3-D5 approved.
 - Supersedes / superseded by: refines [ADR 0002](0002-supplier-producer-production-plot.md) (does not supersede it).
 
@@ -15,8 +15,8 @@ ADR 0002 accepted Supplier != Producer != ProductionPlot but only Supplier exist
 - **Three tenant-owned entities** (`Domain/Production/`): `Producer`, `ProductionPlot` and `PlotRevision`, each a `TenantEntity` with the query filter, organization FK and `(OrganizationId, Id)` alternate key, so later slices can composite-FK to them.
 - **ProductionPlot is a stable producer-scoped plot registration**, not a canonical identity of the physical parcel. Each plot belongs to exactly one producer and `ProducerId` is immutable (guard-enforced). A producer or tenure change creates a new plot; the old one is retained and can be deactivated. Shared or multi-producer plots are deferred, with no claim that adding them is non-breaking.
 - **PlotRevision holds all material location data** (country of production, geometry type Point/Polygon/MultiPolygon, normalized geometry JSON, optional declared area in hectares). The plot row holds none. Exactly one revision is current (`SupersededAtUtc IS NULL`, enforced as *at most one* by a partial unique index); revisions are immutable apart from the one-way supersede, following [ADR 0005](0005-retained-evidence-append-only-rows.md). Unlike ADR 0005 a sequential `Number` per plot is stored (unique per plot) because there are no legacy rows to account for.
-- **A revision is created only for a material change**: geometry, country of production or declared area. Geometry equality is topological (NetTopologySuite `EqualsTopologically` on validated geometries), so ring start, orientation, MultiPolygon component order and a single-component MultiPolygon vs the identical Polygon are not changes. Country and declared area use exact value equality. A note alone is not material. The comparison is `GeoJsonValidationService.IsMaterialChange`; a rejected no-op is a service rule for the endpoint slice.
-- **Active-state rules** (service rules for the endpoint slice): plot creation requires an active producer (decided under a producer row lock); revision creation requires an active plot (decided under a plot row lock) and does not check the producer; deactivating a plot does not supersede its current revision.
+- **A revision is created only for a material change**: geometry, country of production or declared area. Geometry equality is topological (NetTopologySuite `EqualsTopologically` on validated geometries), so ring start, orientation, MultiPolygon component order and a single-component MultiPolygon vs the identical Polygon are not changes. Country and declared area use exact value equality. A note alone is not material. The comparison is `GeoJsonValidationService.IsMaterialChange`; `ProvenanceService` rejects a no-op with 409.
+- **Active-state rules** (enforced by `ProvenanceService`): plot creation requires an active producer (decided under a producer row lock); revision creation requires an active plot (decided under a plot row lock) and does not check the producer; deactivating a plot does not supersede its current revision.
 - **No physical delete** of producers, plots or revisions: identities are deactivated, revisions superseded. The persistence guard rejects deletes; Restrict FKs are the database backstop for later references.
 - **Plots stay separate from `GeoSubmission`.** A `GeoSubmission` is case-scoped supplier evidence; a `PlotRevision` is tenant master provenance with no review status. Existing case geometry is not read, converted or backfilled, and Supplier is never inferred to be a Producer.
 - **Structural validity only.** `ValidatePlotGeometry` accepts one bare Point, Polygon or MultiPolygon geometry object with the same range/closure/topology checks as case uploads and a 5 MiB size cap. This is not EUDR completeness or sufficiency of the geolocation: there is no 4 ha point/polygon rule, no precision rule and no computed area. Case uploads still reject Point.
@@ -40,7 +40,7 @@ Deliberately undecided: supplier/producer relationship, case-lot/quantity attrib
 
 ## Implementation and verification
 
-Source: `Domain/Production/*`, `Data/AppDbContext.cs`, `Data/RetainedEvidence.cs`, `Services/GeoJsonValidationService.cs`, `Data/Migrations/*ProductionProvenance*`. Tests: `DomainTests` (plot geometry, material change), `ProvenanceModelTests`, `MigrationTests`. The endpoint slice adds `ProvenanceService`, DTOs and routes.
+Source: `Domain/Production/*`, `Data/AppDbContext.cs`, `Data/RetainedEvidence.cs`, `Services/GeoJsonValidationService.cs`, `Data/Migrations/*ProductionProvenance*`. Tests: `DomainTests` (plot geometry, material change), `ProvenanceModelTests`, `MigrationTests`. API: `Services/ProvenanceService.cs`, `Endpoints/Provenance/*`, `Contracts/Requests.cs`; tests `ProvenanceTests` and the endpoint inventory/OpenAPI pins.
 
 ## Revisit trigger
 

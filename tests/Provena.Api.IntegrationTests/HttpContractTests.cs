@@ -250,6 +250,9 @@ public sealed class HttpContractTests(ApiFactory factory)
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/documents/{documentId}"), (HttpMethod.Delete, $"/api/eudr-cases/{caseId}/documents/{documentId}"),
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/geolocation"), (HttpMethod.Post, "/api/import/suppliers"),
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/evidence-history"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/geolocation/{geoId}/file"),
+            (HttpMethod.Get, "/api/producers"), (HttpMethod.Post, "/api/producers"), (HttpMethod.Get, $"/api/producers/{id}"), (HttpMethod.Put, $"/api/producers/{id}"),
+            (HttpMethod.Get, "/api/production-plots"), (HttpMethod.Post, "/api/production-plots"), (HttpMethod.Get, $"/api/production-plots/{id}"), (HttpMethod.Put, $"/api/production-plots/{id}"),
+            (HttpMethod.Get, $"/api/production-plots/{id}/revisions"), (HttpMethod.Post, $"/api/production-plots/{id}/revisions"), (HttpMethod.Get, $"/api/production-plots/{id}/revisions/{id}"),
         };
         foreach (var (method, path) in requests)
             Assert.True(HttpStatusCode.Unauthorized == (await anonymous.SendAsync(new HttpRequestMessage(method, path))).StatusCode, $"{method} {path}");
@@ -308,11 +311,12 @@ public sealed class HttpContractTests(ApiFactory factory)
             "/api/eudr-cases/{caseId}/supplier-request", "/api/eudr-cases/{caseId}/complete", "/api/eudr-cases/{caseId}/export", "/api/dashboard",
             "/api/supplier-requests/{id}/revoke", "/api/supplier-requests/{id}/regenerate", "/api/eudr-cases/{caseId}/documents",
             "/api/eudr-cases/{caseId}/documents/{documentId}", "/api/eudr-cases/{caseId}/geolocation", "/api/eudr-cases/{caseId}/evidence-history", "/api/eudr-cases/{caseId}/geolocation/{geolocationId}/file", "/api/import/suppliers", "/api/import/products",
+            "/api/producers", "/api/producers/{id}", "/api/production-plots", "/api/production-plots/{id}", "/api/production-plots/{plotId}/revisions", "/api/production-plots/{plotId}/revisions/{revisionId}",
             "/api/import/shipments", "/public/supplier-requests/{token}", "/public/supplier-requests/{token}/details", "/public/supplier-requests/{token}/documents",
             "/public/supplier-requests/{token}/geolocation", "/public/supplier-requests/{token}/complete",
         })
             Assert.Contains(path, paths);
-        Assert.Equal(31, paths.Count);
+        Assert.Equal(37, paths.Count);
         var login = document.GetProperty("paths").GetProperty("/api/auth/login").GetProperty("post");
         Assert.False(login.TryGetProperty("security", out _));
         Assert.True(document.GetProperty("paths").GetProperty("/api/suppliers").GetProperty("get").TryGetProperty("security", out _));

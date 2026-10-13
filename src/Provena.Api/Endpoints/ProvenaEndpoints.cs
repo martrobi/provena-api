@@ -10,6 +10,7 @@ public static class ProvenaEndpoints
         api.MapSupplierEndpoints(); api.MapProductEndpoints(); api.MapShipmentEndpoints();
         api.MapCaseEndpoints(); api.MapCaseFileEndpoints(); api.MapDashboardEndpoints();
         api.MapSupplierRequestEndpoints(); api.MapImportEndpoints();
+        api.MapProducerEndpoints(); api.MapProductionPlotEndpoints();
         app.MapPublicSupplierEndpoints();
         return app;
     }

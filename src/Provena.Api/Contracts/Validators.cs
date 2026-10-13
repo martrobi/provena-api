@@ -63,3 +63,39 @@ public sealed class CompleteValidator : AbstractValidator<CompleteInput>
 {
     public CompleteValidator() { RuleFor(x => x.ExternalDdsReference).MaximumLength(200); }
 }
+public sealed class ProducerValidator : AbstractValidator<ProducerInput>
+{
+    public ProducerValidator()
+    {
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(200); RuleFor(x => x.ExternalReference).MaximumLength(100);
+        RuleFor(x => x.CountryCode).Matches("^[A-Z]{2}$").When(x => !string.IsNullOrEmpty(x.CountryCode));
+        RuleFor(x => x.Notes).MaximumLength(4000);
+    }
+}
+public sealed class PlotRevisionValidator : AbstractValidator<PlotRevisionInput>
+{
+    public PlotRevisionValidator()
+    {
+        RuleFor(x => x.CountryCode).NotEmpty().Matches("^[A-Z]{2}$");
+        RuleFor(x => x.Geometry).Must(x => x.ValueKind == System.Text.Json.JsonValueKind.Object).WithMessage("Geometry must be a GeoJSON geometry object.");
+        RuleFor(x => x.AreaHectares).GreaterThan(0).LessThan(100000000m).PrecisionScale(12, 4, true).When(x => x.AreaHectares.HasValue);
+        RuleFor(x => x.Note).MaximumLength(4000);
+    }
+}
+public sealed class ProductionPlotValidator : AbstractValidator<ProductionPlotInput>
+{
+    public ProductionPlotValidator()
+    {
+        RuleFor(x => x.ProducerId).NotEmpty(); RuleFor(x => x.Name).NotEmpty().MaximumLength(200); RuleFor(x => x.ExternalReference).MaximumLength(100);
+        RuleFor(x => x.Notes).MaximumLength(4000);
+        RuleFor(x => x.InitialRevision).NotNull().SetValidator(new PlotRevisionValidator());
+    }
+}
+public sealed class ProductionPlotUpdateValidator : AbstractValidator<ProductionPlotUpdateInput>
+{
+    public ProductionPlotUpdateValidator()
+    {
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(200); RuleFor(x => x.ExternalReference).MaximumLength(100); RuleFor(x => x.Notes).MaximumLength(4000);
+        RuleFor(x => x.IsActive).NotNull().WithMessage("isActive is required.");
+    }
+}

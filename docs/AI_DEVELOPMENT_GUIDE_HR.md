@@ -62,7 +62,7 @@ OpenAI upute za [Codex IDE ekstenziju](https://developers.openai.com/codex/ide) 
 
 Skill je recept za ponovljivu aktivnost: primjerice promijeni model → mapping → generiraj i pregledaj migraciju → testiraj → prijavi rezultat. Ovdje ih je pet: database-change, api-contract-change, eudr-domain-change, security-sensitive-change i verify-change. Ne spremaju stanje projekta i ne zamjenjuju čitanje konkretnog koda.
 
-ADR objašnjava važnu odluku koja treba preživjeti više featurea. ADR 0001 opisuje zatečeni servisni ustroj, bez izmišljene povijesti odobravanja. ADR 0002 bilježi tvoju odluku da Supplier, Producer i ProductionPlot nisu isti pojam, uz jasnu oznaku da cilj još nije implementiran.
+ADR objašnjava važnu odluku koja treba preživjeti više featurea. ADR 0001 opisuje zatečeni servisni ustroj, bez izmišljene povijesti odobravanja. ADR 0002 bilježi tvoju odluku da Supplier, Producer i ProductionPlot nisu isti pojam, uz jasnu oznaku što je od toga implementirano. ADR 0006 opisuje interni model Producer / ProductionPlot / PlotRevision (implementiran je interni API; povezivanje sa slučajevima još nije).
 
 Plan je razrada konkretne veće promjene: problem, željeno ponašanje, nepoznanice, model/API, sigurnost, migracija, kriteriji prihvaćanja i testovi. Kreiraj ga kada mijenjaš više povezanih dijelova, poslovna pravila, povijesne podatke, javni ugovor ili sigurnosnu granicu. Za tipfeler, lokalni refaktor bez promjene ponašanja ili jasan mali validator ne treba plan od pet stranica. Razina rizika važnija je od broja redaka.
 

@@ -50,7 +50,7 @@ All application relationships above use DeleteBehavior.Restrict / SQL ON DELETE 
 
 The request partial index counts expired or completed requests until revoked; this matches Create's refusal when any non-revoked request exists. It does not enforce expiry or delivery semantics.
 
-"At least one current revision" is not a database constraint: a plot is created together with revision 1, and a supersede happens in the same transaction as the insert of its successor (a service obligation for the endpoint slice). `Producers.CreatedByUserId`, `ProductionPlots.CreatedByUserId` and `PlotRevisions.CreatedByUserId` have no FK, like the other attribution ids.
+"At least one current revision" is not a database constraint: a plot is created together with revision 1, and a supersede happens in the same transaction as the insert of its successor (a `ProvenanceService` obligation). `Producers.CreatedByUserId`, `ProductionPlots.CreatedByUserId` and `PlotRevisions.CreatedByUserId` have no FK, like the other attribution ids.
 
 No FK is declared for Documents/Geolocations/AuditEvents.SupplierRequestId, AuditEvents.ActorUserId or Requirements.ReviewedByUserId. Request.SupplierId and request.CaseId are each tenant-consistent, but the schema does not prove the supplier equals that case's shipment supplier. Service flow establishes these associations today; future alternate write paths must not assume database enforcement of them.
 
