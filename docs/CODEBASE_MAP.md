@@ -19,12 +19,13 @@ All paths below are repository-relative. One application project; two test proje
 | Request/response records, DTO projections | `src/Provena.Api/Contracts/Requests.cs` |
 | FluentValidation rules | `src/Provena.Api/Contracts/Validators.cs` |
 | Entity bases / tenant ownership field | `src/Provena.Api/Domain/BaseEntities.cs` |
-| Entities / enums (all namespace `Provena.Api.Domain`) | `src/Provena.Api/Domain/{Organizations,Suppliers,Products,Shipments,EudrCases,SupplierRequests,Files,Audit,Production}/` |
+| Entities / enums (all namespace `Provena.Api.Domain`) | `src/Provena.Api/Domain/{Organizations,Suppliers,Products,Shipments,EudrCases,SupplierRequests,Files,Audit,Production,Dossiers}/` |
 | Production provenance (Producer, ProductionPlot, PlotRevision) | `src/Provena.Api/Domain/Production/Producer.cs`, `ProductionPlot.cs` (also `PlotRevision`, `PlotGeometryType`); mapping/guards in `Data/AppDbContext.cs`; plot geometry validation and material-change comparison in `Services/GeoJsonValidationService.cs`; routes `Endpoints/Provenance/ProducerEndpoints.cs`, `ProductionPlotEndpoints.cs` → `Services/ProvenanceService.cs`; DTOs/inputs in `Contracts/Requests.cs`, validators in `Contracts/Validators.cs`; tests `ProvenanceModelTests.cs`, `ProvenanceTests.cs` |
+| Case dossier model (CaseDossier, CaseLot, LotContribution, ContributionPlot) | `src/Provena.Api/Domain/Dossiers/CaseDossier.cs` (all four types); mapping, alternate keys, indexes and `EnforceDossierImmutable`/`Retirement` guards in `Data/AppDbContext.cs`; no service or endpoints yet; tests `DossierModelTests.cs`, `MigrationTests.cs` |
 | Retained evidence and plot revision "current" predicates (`Current()`) | `src/Provena.Api/Data/RetainedEvidence.cs`; write paths in `Services/CaseFileService.cs` (withdraw/supersede) and `SupplierRequestService.SaveDetails` |
 | EF/Identity model, tenant filters and tracked-write guards | `src/Provena.Api/Data/AppDbContext.cs` (mapping is inline in OnModelCreating) |
 | EF design-time connection configuration | `src/Provena.Api/Data/DesignTimeFactory.cs` |
-| Migrations and model snapshot | `src/Provena.Api/Data/Migrations/20261010180000_InitialCreate.cs`, `20261012225511_RetainedEvidence.cs`, `20261012234200_ProductionProvenance.cs`, `InitialCreate.TargetModel.cs` (frozen original target model), `AppDbContextModelSnapshot.cs`; read [DATABASE](DATABASE.md) before adding migrations |
+| Migrations and model snapshot | `src/Provena.Api/Data/Migrations/20261010180000_InitialCreate.cs`, `20261012225511_RetainedEvidence.cs`, `20261012234200_ProductionProvenance.cs`, `20261013004014_CaseDossier.cs`, `InitialCreate.TargetModel.cs` (frozen original target model), `AppDbContextModelSnapshot.cs`; read [DATABASE](DATABASE.md) before adding migrations |
 | File I/O / email adapter | `src/Provena.Api/Infrastructure/FileStorage.cs`, `EmailSender.cs` |
 | Error mapping / app exceptions | `src/Provena.Api/Common/ExceptionHandler.cs`, `ApiException.cs` |
 | Shared list paging (`ToPageAsync`, defaults/limits) | `src/Provena.Api/Common/Paging.cs`, `PageResult<T>` in `Contracts/Requests.cs` |

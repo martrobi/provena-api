@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql;
 using Provena.Api.Auth;
 using Provena.Api.Data;
 using Provena.Api.Data.Migrations;
@@ -71,6 +72,7 @@ public sealed class MigrationTests : IAsyncLifetime
     private const string EmptyJson = "[]"; // Any valid jsonb; avoids braces, which ExecuteSqlRawAsync treats as format placeholders.
     private const string RetainedEvidenceMigration = "20261012225511_RetainedEvidence";
     private const string ProvenanceMigration = "20261012234200_ProductionProvenance";
+    private const string DossierMigration = "20261013004014_CaseDossier";
     private static readonly string[] ProvenanceTables = ["PlotRevisions", "ProductionPlots", "Producers"];
     private sealed record SeededCase(Guid OrganizationId, Guid CaseId, Guid GeoId);
 
@@ -240,6 +242,186 @@ VALUES ('{Guid.NewGuid()}', now(), now(), '{org}', '{plot}', {number}, 'BR', 1, 
 
         Assert.DoesNotContain(ProvenanceMigration, await db.Database.GetAppliedMigrationsAsync());
         Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('Producers','ProductionPlots','PlotRevisions')").ToListAsync());
+    }
+
+    private static readonly string[] DossierTables = ["CaseDossiers", "CaseLots", "LotContributions", "ContributionPlots"];
+
+    // Inserts a producer/plot/revision and a complete dossier graph (dossier, current lot, contribution, plot link) into the seeded organization and case.
+    private static async Task InsertDossierGraph(AppDbContext db, SeededCase seed)
+    {
+        Guid producer = Guid.NewGuid(), plot = Guid.NewGuid(), revision = Guid.NewGuid(), dossier = Guid.NewGuid(), lot = Guid.NewGuid(), contribution = Guid.NewGuid();
+        await db.Database.ExecuteSqlRawAsync($"""
+INSERT INTO "Producers" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","Name","IsActive") VALUES ('{producer}', now(), now(), '{seed.OrganizationId}', 'Producer', true);
+INSERT INTO "ProductionPlots" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","ProducerId","Name","IsActive") VALUES ('{plot}', now(), now(), '{seed.OrganizationId}', '{producer}', 'Plot', true);
+INSERT INTO "PlotRevisions" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","ProductionPlotId","Number","CountryCode","GeometryType","GeometryJson") VALUES ('{revision}', now(), now(), '{seed.OrganizationId}', '{plot}', 1, 'BR', 1, '{EmptyJson}');
+INSERT INTO "CaseDossiers" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId") VALUES ('{dossier}', now(), now(), '{seed.OrganizationId}', '{seed.CaseId}');
+INSERT INTO "CaseLots" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","CaseDossierId","Number","LotReference","Quantity","Unit") VALUES ('{lot}', now(), now(), '{seed.OrganizationId}', '{dossier}', 1, 'LOT-1', 10.5, 0);
+INSERT INTO "LotContributions" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","CaseLotId","ProducerId","Quantity","Unit") VALUES ('{contribution}', now(), now(), '{seed.OrganizationId}', '{lot}', '{producer}', 10.5, 0);
+INSERT INTO "ContributionPlots" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","LotContributionId","ProducerId","ProductionPlotId","PlotRevisionId","ProductionStartDate","ProductionEndDate") VALUES ('{Guid.NewGuid()}', now(), now(), '{seed.OrganizationId}', '{contribution}', '{producer}', '{plot}', '{revision}', '2024-01-01', '2024-12-31');
+""");
+    }
+
+    private static async Task<int> Count(AppDbContext db, string table) => await db.Database.SqlQueryRaw<int>($"SELECT count(*)::int AS \"Value\" FROM \"{table}\"").SingleAsync();
+
+    [Fact]
+    public async Task Clean_database_has_dossier_tables_columns_indexes_keys_and_composite_foreign_keys()
+    {
+        await using var db = NewContext();
+        Assert.False(db.Database.HasPendingModelChanges(), "The snapshot must match the DbContext.");
+        await db.Database.MigrateAsync();
+        Assert.Contains(DossierMigration, await db.Database.GetAppliedMigrationsAsync());
+        var tables = await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_schema = 'public'").ToListAsync();
+        Assert.Subset(tables.ToHashSet(), DossierTables.ToHashSet());
+
+        var periodColumns = await db.Database.SqlQueryRaw<string>("""
+            SELECT column_name || ':' || data_type || ':' || is_nullable AS "Value" FROM information_schema.columns
+            WHERE table_name = 'ContributionPlots' AND column_name IN ('ProductionStartDate','ProductionEndDate') ORDER BY column_name
+            """).ToListAsync();
+        Assert.Equal(["ProductionEndDate:date:YES", "ProductionStartDate:date:YES"], periodColumns);
+        foreach (var table in new[] { "CaseLots", "LotContributions" })
+            Assert.Equal("numeric(20,6)", await db.Database.SqlQueryRaw<string>(
+                $"SELECT format_type(a.atttypid, a.atttypmod) AS \"Value\" FROM pg_attribute a WHERE a.attrelid = '\"{table}\"'::regclass AND a.attname = 'Quantity'").SingleAsync());
+
+        async Task<string> Index(string name) => await db.Database.SqlQueryRaw<string>("SELECT indexdef AS \"Value\" FROM pg_indexes WHERE indexname = {0}", name).SingleAsync();
+        var dossierPerCase = await Index("IX_CaseDossiers_EudrCaseId");
+        Assert.Contains("UNIQUE", dossierPerCase); Assert.DoesNotContain("WHERE", dossierPerCase);
+        var currentLot = await Index("IX_CaseLots_CaseDossierId");
+        Assert.Contains("UNIQUE", currentLot); Assert.Contains("SupersededAtUtc\" IS NULL", currentLot);
+        var reference = await Index("IX_CaseLots_OrganizationId_LotReference");
+        Assert.Contains("UNIQUE", reference); Assert.Contains("(\"OrganizationId\", \"LotReference\")", reference); Assert.Contains("SupersededAtUtc\" IS NULL", reference);
+        foreach (var name in new[] { "IX_CaseLots_CaseDossierId_Number", "IX_LotContributions_CaseLotId_ProducerId", "IX_ContributionPlots_LotContributionId_ProductionPlotId" })
+        { var def = await Index(name); Assert.Contains("UNIQUE", def); Assert.DoesNotContain("WHERE", def); }
+
+        var constraints = await db.Database.SqlQueryRaw<string>("""
+            SELECT conrelid::regclass::text || ' ' || contype::text || ' ' || conname || ' ' || pg_get_constraintdef(oid) AS "Value" FROM pg_constraint
+            WHERE conrelid::regclass::text IN ('"CaseDossiers"', '"CaseLots"', '"LotContributions"', '"ContributionPlots"', '"ProductionPlots"', '"PlotRevisions"')
+            """).ToListAsync();
+        Assert.Contains(constraints, c => c.Contains("\"ProductionPlots\" u AK_ProductionPlots_OrganizationId_ProducerId_Id UNIQUE (\"OrganizationId\", \"ProducerId\", \"Id\")"));
+        Assert.Contains(constraints, c => c.Contains("\"PlotRevisions\" u AK_PlotRevisions_OrganizationId_ProductionPlotId_Id UNIQUE (\"OrganizationId\", \"ProductionPlotId\", \"Id\")"));
+        Assert.Contains(constraints, c => c.Contains("\"LotContributions\" u AK_LotContributions_OrganizationId_Id_ProducerId UNIQUE (\"OrganizationId\", \"Id\", \"ProducerId\")"));
+        Assert.Contains(constraints, c => c.Contains("(\"OrganizationId\", \"EudrCaseId\") REFERENCES \"Cases\"(\"OrganizationId\", \"Id\")"));
+        Assert.Contains(constraints, c => c.Contains("(\"OrganizationId\", \"CaseDossierId\") REFERENCES \"CaseDossiers\"(\"OrganizationId\", \"Id\")"));
+        Assert.Contains(constraints, c => c.Contains("(\"OrganizationId\", \"CaseLotId\") REFERENCES \"CaseLots\"(\"OrganizationId\", \"Id\")"));
+        Assert.Contains(constraints, c => c.Contains("\"LotContributions\" f") && c.Contains("(\"OrganizationId\", \"ProducerId\") REFERENCES \"Producers\"(\"OrganizationId\", \"Id\")"));
+        Assert.Contains(constraints, c => c.Contains("(\"OrganizationId\", \"LotContributionId\", \"ProducerId\") REFERENCES \"LotContributions\"(\"OrganizationId\", \"Id\", \"ProducerId\")"));
+        Assert.Contains(constraints, c => c.Contains("(\"OrganizationId\", \"ProducerId\", \"ProductionPlotId\") REFERENCES \"ProductionPlots\"(\"OrganizationId\", \"ProducerId\", \"Id\")"));
+        Assert.Contains(constraints, c => c.Contains("(\"OrganizationId\", \"ProductionPlotId\", \"PlotRevisionId\") REFERENCES \"PlotRevisions\"(\"OrganizationId\", \"ProductionPlotId\", \"Id\")"));
+        Assert.All(constraints.Where(c => c.Contains(" f ")), f => Assert.Contains("ON DELETE RESTRICT", f));
+    }
+
+    [Fact]
+    public async Task Upgrade_from_production_provenance_keeps_rows_and_leaves_dossier_tables_empty()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        await SeedEvidenceAtInitialSchema(db);
+        await db.GetService<IMigrator>().MigrateAsync(ProvenanceMigration);
+        await InsertPlot(db);
+        Assert.Equal([InitialMigration, RetainedEvidenceMigration, ProvenanceMigration], (await db.Database.GetAppliedMigrationsAsync()).ToArray());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('CaseDossiers','CaseLots','LotContributions','ContributionPlots')").ToListAsync());
+
+        await db.Database.MigrateAsync();
+
+        Assert.Contains(DossierMigration, await db.Database.GetAppliedMigrationsAsync());
+        foreach (var table in new[] { "Documents", "Geolocations", "Submissions", "Cases", "Shipments", "Suppliers", "Products", "Producers", "ProductionPlots", "PlotRevisions" })
+            Assert.Equal(1, await Count(db, table));
+        Assert.Equal(2, await Count(db, "Organizations"));
+        foreach (var table in DossierTables)
+            Assert.Equal(0, await Count(db, table));
+    }
+
+    [Fact]
+    public async Task Dossier_indexes_and_foreign_keys_reject_violating_rows()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.Database.MigrateAsync();
+        await InsertDossierGraph(db, seed);
+
+        var otherCase = Guid.NewGuid();
+        var dossier = await db.Database.SqlQueryRaw<Guid>("""SELECT "Id" AS "Value" FROM "CaseDossiers" """).SingleAsync();
+        var lot = await db.Database.SqlQueryRaw<Guid>("""SELECT "Id" AS "Value" FROM "CaseLots" """).SingleAsync();
+        var secondDossier = await Assert.ThrowsAnyAsync<Exception>(() => db.Database.ExecuteSqlRawAsync(
+            $"""INSERT INTO "CaseDossiers" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId") VALUES ('{Guid.NewGuid()}', now(), now(), '{seed.OrganizationId}', '{seed.CaseId}')"""));
+        Assert.Contains("IX_CaseDossiers_EudrCaseId", secondDossier.ToString());
+        var secondCurrentLot = await Assert.ThrowsAnyAsync<Exception>(() => db.Database.ExecuteSqlRawAsync(
+            $"""INSERT INTO "CaseLots" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","CaseDossierId","Number","LotReference","Quantity","Unit") VALUES ('{Guid.NewGuid()}', now(), now(), '{seed.OrganizationId}', '{dossier}', 2, 'LOT-2', 1, 0)"""));
+        Assert.Contains("IX_CaseLots_CaseDossierId", secondCurrentLot.ToString());
+        // Duplicate current reference in the organization, on a different dossier.
+        await db.Database.ExecuteSqlRawAsync($"""
+INSERT INTO "Shipments" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","ReferenceNumber","SupplierId","ProductId","Quantity","Unit") SELECT '{Guid.NewGuid()}', now(), now(), "OrganizationId", 'SHP-2', "SupplierId", "ProductId", 1, 0 FROM "Shipments";
+INSERT INTO "Cases" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","ShipmentId","Status") SELECT '{otherCase}', now(), now(), "OrganizationId", "Id", 0 FROM "Shipments" WHERE "ReferenceNumber" = 'SHP-2';
+INSERT INTO "CaseDossiers" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId") VALUES ('{Guid.NewGuid()}', now(), now(), '{seed.OrganizationId}', '{otherCase}');
+""");
+        var otherDossier = await db.Database.SqlQueryRaw<Guid>($"""SELECT "Id" AS "Value" FROM "CaseDossiers" WHERE "EudrCaseId" = '{otherCase}' """).SingleAsync();
+        var duplicateReference = await Assert.ThrowsAnyAsync<Exception>(() => db.Database.ExecuteSqlRawAsync(
+            $"""INSERT INTO "CaseLots" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","CaseDossierId","Number","LotReference","Quantity","Unit") VALUES ('{Guid.NewGuid()}', now(), now(), '{seed.OrganizationId}', '{otherDossier}', 1, 'LOT-1', 1, 0)"""));
+        Assert.Contains("IX_CaseLots_OrganizationId_LotReference", duplicateReference.ToString());
+        // A superseded duplicate is allowed.
+        await db.Database.ExecuteSqlRawAsync(
+            $"""INSERT INTO "CaseLots" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","CaseDossierId","Number","LotReference","Quantity","Unit","SupersededAtUtc") VALUES ('{Guid.NewGuid()}', now(), now(), '{seed.OrganizationId}', '{otherDossier}', 1, 'LOT-1', 1, 0, now())""");
+        // Foreign keys: a lot of an unknown dossier, a contribution of an unknown producer.
+        var orphanLot = await Assert.ThrowsAnyAsync<Exception>(() => db.Database.ExecuteSqlRawAsync(
+            $"""INSERT INTO "CaseLots" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","CaseDossierId","Number","LotReference","Quantity","Unit") VALUES ('{Guid.NewGuid()}', now(), now(), '{seed.OrganizationId}', '{Guid.NewGuid()}', 1, 'ORPHAN', 1, 0)"""));
+        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, Assert.IsType<PostgresException>(orphanLot.GetBaseException()).SqlState);
+        var unknownProducer = await Assert.ThrowsAnyAsync<Exception>(() => db.Database.ExecuteSqlRawAsync(
+            $"""INSERT INTO "LotContributions" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","CaseLotId","ProducerId","Quantity","Unit") VALUES ('{Guid.NewGuid()}', now(), now(), '{seed.OrganizationId}', '{lot}', '{Guid.NewGuid()}', 1, 0)"""));
+        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, Assert.IsType<PostgresException>(unknownProducer.GetBaseException()).SqlState);
+    }
+
+    [Fact]
+    public async Task Dossier_down_is_refused_while_dossier_data_exists_and_leaves_schema_and_rows_intact()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.Database.MigrateAsync();
+        await InsertDossierGraph(db, seed);
+
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => db.GetService<IMigrator>().MigrateAsync(ProvenanceMigration));
+        Assert.Contains("Case dossier records exist; rollback would destroy history", failure.ToString());
+
+        Assert.Contains(DossierMigration, await db.Database.GetAppliedMigrationsAsync());
+        foreach (var table in DossierTables)
+            Assert.Equal(1, await Count(db, table));
+        Assert.Equal(2, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM pg_constraint WHERE conname IN ('AK_ProductionPlots_OrganizationId_ProducerId_Id','AK_PlotRevisions_OrganizationId_ProductionPlotId_Id')""").SingleAsync());
+    }
+
+    [Fact]
+    public async Task Dossier_down_guard_triggers_when_only_a_dossier_anchor_exists()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.Database.MigrateAsync();
+        await db.Database.ExecuteSqlRawAsync($"""INSERT INTO "CaseDossiers" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId") VALUES ('{Guid.NewGuid()}', now(), now(), '{seed.OrganizationId}', '{seed.CaseId}')""");
+
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => db.GetService<IMigrator>().MigrateAsync(ProvenanceMigration));
+        Assert.Contains("Case dossier records exist; rollback would destroy history", failure.ToString());
+        Assert.Equal(1, await Count(db, "CaseDossiers"));
+    }
+
+    [Fact]
+    public async Task Dossier_down_succeeds_when_dossier_tables_are_empty_and_drops_only_the_new_keys()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.Database.MigrateAsync();
+        await InsertDossierGraph(db, seed);
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ContributionPlots", "LotContributions", "CaseLots", "CaseDossiers" """);
+
+        await db.GetService<IMigrator>().MigrateAsync(ProvenanceMigration);
+
+        Assert.DoesNotContain(DossierMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('CaseDossiers','CaseLots','LotContributions','ContributionPlots')").ToListAsync());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("""SELECT conname AS "Value" FROM pg_constraint WHERE conname IN ('AK_ProductionPlots_OrganizationId_ProducerId_Id','AK_PlotRevisions_OrganizationId_ProductionPlotId_Id')""").ToListAsync());
+        // The earlier provenance schema, its keys and its rows are untouched.
+        Assert.Equal(2, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM pg_constraint WHERE conname IN ('AK_ProductionPlots_OrganizationId_Id','AK_PlotRevisions_OrganizationId_Id')""").SingleAsync());
+        Assert.Equal(1, await Count(db, "Producers"));
+        Assert.Equal(1, await Count(db, "ProductionPlots"));
+        Assert.Equal(1, await Count(db, "PlotRevisions"));
     }
 
 #pragma warning restore EF1002

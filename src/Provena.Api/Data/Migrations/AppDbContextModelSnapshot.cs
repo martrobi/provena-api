@@ -334,6 +334,7 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<Guid?>("CreatedByUserId").HasColumnType("uuid");
             b.HasKey("Id");
             b.HasAlternateKey("OrganizationId", "Id");
+            b.HasAlternateKey("OrganizationId", "ProducerId", "Id");
             b.HasIndex("OrganizationId", "ProducerId").HasDatabaseName("IX_ProductionPlots_OrganizationId_ProducerId");
             b.HasIndex("OrganizationId", "ExternalReference").IsUnique().HasDatabaseName("IX_ProductionPlots_OrganizationId_ExternalReference").HasFilter("\"ExternalReference\" IS NOT NULL");
             b.ToTable("ProductionPlots", (string?)null);
@@ -355,10 +356,85 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
             b.Property<DateTimeOffset?>("SupersededAtUtc").HasColumnType("timestamp with time zone");
             b.HasKey("Id");
             b.HasAlternateKey("OrganizationId", "Id");
+            b.HasAlternateKey("OrganizationId", "ProductionPlotId", "Id");
             b.HasIndex("OrganizationId", "ProductionPlotId").HasDatabaseName("IX_PlotRevisions_OrganizationId_ProductionPlotId");
             b.HasIndex("ProductionPlotId", "Number").IsUnique().HasDatabaseName("IX_PlotRevisions_ProductionPlotId_Number");
             b.HasIndex("ProductionPlotId").IsUnique().HasDatabaseName("IX_PlotRevisions_ProductionPlotId").HasFilter("\"SupersededAtUtc\" IS NULL");
             b.ToTable("PlotRevisions", (string?)null);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseDossier", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<Guid>("EudrCaseId").HasColumnType("uuid");
+            b.Property<Guid?>("CreatedByUserId").HasColumnType("uuid");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasIndex("EudrCaseId").IsUnique().HasDatabaseName("IX_CaseDossiers_EudrCaseId");
+            b.HasIndex("OrganizationId", "EudrCaseId").HasDatabaseName("IX_CaseDossiers_OrganizationId_EudrCaseId");
+            b.ToTable("CaseDossiers", (string?)null);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseLot", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<Guid>("CaseDossierId").HasColumnType("uuid");
+            b.Property<int>("Number").HasColumnType("integer");
+            b.Property<string>("LotReference").IsRequired().HasMaxLength(100).HasColumnType("character varying(100)");
+            b.Property<decimal>("Quantity").HasPrecision(20, 6).HasColumnType("numeric(20,6)");
+            b.Property<int>("Unit").HasColumnType("integer");
+            b.Property<string>("Note").HasMaxLength(4000).HasColumnType("character varying(4000)");
+            b.Property<Guid?>("CreatedByUserId").HasColumnType("uuid");
+            b.Property<DateTimeOffset?>("SupersededAtUtc").HasColumnType("timestamp with time zone");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasIndex("CaseDossierId", "Number").IsUnique().HasDatabaseName("IX_CaseLots_CaseDossierId_Number");
+            b.HasIndex("CaseDossierId").IsUnique().HasDatabaseName("IX_CaseLots_CaseDossierId").HasFilter("\"SupersededAtUtc\" IS NULL");
+            b.HasIndex("OrganizationId", "LotReference").IsUnique().HasDatabaseName("IX_CaseLots_OrganizationId_LotReference").HasFilter("\"SupersededAtUtc\" IS NULL");
+            b.HasIndex("OrganizationId", "CaseDossierId").HasDatabaseName("IX_CaseLots_OrganizationId_CaseDossierId");
+            b.ToTable("CaseLots", (string?)null);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.LotContribution", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<Guid>("CaseLotId").HasColumnType("uuid");
+            b.Property<Guid>("ProducerId").HasColumnType("uuid");
+            b.Property<decimal>("Quantity").HasPrecision(20, 6).HasColumnType("numeric(20,6)");
+            b.Property<int>("Unit").HasColumnType("integer");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasAlternateKey("OrganizationId", "Id", "ProducerId");
+            b.HasIndex("CaseLotId", "ProducerId").IsUnique().HasDatabaseName("IX_LotContributions_CaseLotId_ProducerId");
+            b.HasIndex("OrganizationId", "CaseLotId").HasDatabaseName("IX_LotContributions_OrganizationId_CaseLotId");
+            b.HasIndex("OrganizationId", "ProducerId").HasDatabaseName("IX_LotContributions_OrganizationId_ProducerId");
+            b.ToTable("LotContributions", (string?)null);
+        });
+        modelBuilder.Entity("Provena.Api.Domain.ContributionPlot", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uuid");
+            b.Property<DateTimeOffset>("CreatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<DateTimeOffset>("UpdatedAtUtc").HasColumnType("timestamp with time zone");
+            b.Property<Guid>("OrganizationId").HasColumnType("uuid");
+            b.Property<Guid>("LotContributionId").HasColumnType("uuid");
+            b.Property<Guid>("ProducerId").HasColumnType("uuid");
+            b.Property<Guid>("ProductionPlotId").HasColumnType("uuid");
+            b.Property<Guid>("PlotRevisionId").HasColumnType("uuid");
+            b.Property<DateOnly?>("ProductionStartDate").HasColumnType("date");
+            b.Property<DateOnly?>("ProductionEndDate").HasColumnType("date");
+            b.HasKey("Id");
+            b.HasAlternateKey("OrganizationId", "Id");
+            b.HasIndex("LotContributionId", "ProductionPlotId").IsUnique().HasDatabaseName("IX_ContributionPlots_LotContributionId_ProductionPlotId");
+            b.HasIndex("OrganizationId", "LotContributionId", "ProducerId").HasDatabaseName("IX_ContributionPlots_OrganizationId_LotContributionId_Producer~");
+            b.HasIndex("OrganizationId", "ProducerId", "ProductionPlotId").HasDatabaseName("IX_ContributionPlots_OrganizationId_ProducerId_ProductionPlotId");
+            b.HasIndex("OrganizationId", "ProductionPlotId", "PlotRevisionId").HasDatabaseName("IX_ContributionPlots_OrganizationId_ProductionPlotId_PlotRevis~");
+            b.ToTable("ContributionPlots", (string?)null);
         });
         modelBuilder.Entity("Provena.Api.Domain.AuditEvent", b =>
         {
@@ -477,6 +553,29 @@ public sealed class AppDbContextModelSnapshot : ModelSnapshot
         {
             b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
             b.HasOne("Provena.Api.Domain.ProductionPlot", null).WithMany().HasForeignKey("OrganizationId", "ProductionPlotId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseDossier", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.EudrCase", null).WithMany().HasForeignKey("OrganizationId", "EudrCaseId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+        modelBuilder.Entity("Provena.Api.Domain.CaseLot", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.CaseDossier", null).WithMany().HasForeignKey("OrganizationId", "CaseDossierId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+        modelBuilder.Entity("Provena.Api.Domain.LotContribution", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.CaseLot", null).WithMany().HasForeignKey("OrganizationId", "CaseLotId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.Producer", null).WithMany().HasForeignKey("OrganizationId", "ProducerId").HasPrincipalKey("OrganizationId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+        });
+        modelBuilder.Entity("Provena.Api.Domain.ContributionPlot", b =>
+        {
+            b.HasOne("Provena.Api.Domain.Organization", null).WithMany().HasForeignKey("OrganizationId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.LotContribution", null).WithMany().HasForeignKey("OrganizationId", "LotContributionId", "ProducerId").HasPrincipalKey("OrganizationId", "Id", "ProducerId").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.ProductionPlot", null).WithMany().HasForeignKey("OrganizationId", "ProducerId", "ProductionPlotId").HasPrincipalKey("OrganizationId", "ProducerId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
+            b.HasOne("Provena.Api.Domain.PlotRevision", null).WithMany().HasForeignKey("OrganizationId", "ProductionPlotId", "PlotRevisionId").HasPrincipalKey("OrganizationId", "ProductionPlotId", "Id").OnDelete(DeleteBehavior.Restrict).IsRequired();
         });
     }
 }

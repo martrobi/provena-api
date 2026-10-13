@@ -2,7 +2,7 @@
 
 - Date: 2026-10-13
 - Decision status: Accepted
-- Implementation status: Partial. The persistence model, guards, plot geometry validation, migration `ProductionProvenance` and the internal authenticated producer/plot/revision API (`ProvenanceService`) are implemented. Attribution of case lots/quantities to plot revisions (a later slice) is not.
+- Implementation status: Partial. The persistence model, guards, plot geometry validation, migration `ProductionProvenance` and the internal authenticated producer/plot/revision API (`ProvenanceService`) are implemented. Attribution of case lots/quantities to plot revisions is specified by [ADR 0007](0007-case-dossier-lot-attribution.md) (persistence model implemented there; API pending).
 - Decision owner / approval evidence: Owner approval of `docs/plans/2026-10-production-provenance.md` (2026-10-13): D1 approved with clarification (producer-scoped plot registration), D2 approved as recommended, D3-D5 approved.
 - Supersedes / superseded by: refines [ADR 0002](0002-supplier-producer-production-plot.md) (does not supersede it).
 
@@ -21,7 +21,7 @@ ADR 0002 accepted Supplier != Producer != ProductionPlot but only Supplier exist
 - **Plots stay separate from `GeoSubmission`.** A `GeoSubmission` is case-scoped supplier evidence; a `PlotRevision` is tenant master provenance with no review status. Existing case geometry is not read, converted or backfilled, and Supplier is never inferred to be a Producer.
 - **Structural validity only.** `ValidatePlotGeometry` accepts one bare Point, Polygon or MultiPolygon geometry object with the same range/closure/topology checks as case uploads and a 5 MiB size cap. This is not EUDR completeness or sufficiency of the geolocation: there is no 4 ha point/polygon rule, no precision rule and no computed area. Case uploads still reject Point.
 
-Deliberately undecided: supplier/producer relationship, case-lot/quantity attribution, EU GeoJSON profile conformance, retention/erasure of producer and plot data (the open legal item now covers them), and reviewed dossier snapshots.
+Deliberately undecided: supplier/producer relationship, EU GeoJSON profile conformance, retention/erasure of producer and plot data (the open legal item now covers them), and reviewed dossier snapshots.
 
 ## Alternatives considered
 

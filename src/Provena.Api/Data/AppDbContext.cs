@@ -24,6 +24,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
     public DbSet<Producer> Producers => Set<Producer>();
     public DbSet<ProductionPlot> ProductionPlots => Set<ProductionPlot>();
     public DbSet<PlotRevision> PlotRevisions => Set<PlotRevision>();
+    public DbSet<CaseDossier> CaseDossiers => Set<CaseDossier>();
+    public DbSet<CaseLot> CaseLots => Set<CaseLot>();
+    public DbSet<LotContribution> LotContributions => Set<LotContribution>();
+    public DbSet<ContributionPlot> ContributionPlots => Set<ContributionPlot>();
     protected override void OnModelCreating(ModelBuilder b)
     {
         base.OnModelCreating(b);
@@ -40,6 +44,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         ConfigureTenant<EudrCase>(b); ConfigureTenant<EudrRequirement>(b); ConfigureTenant<SupplierRequest>(b);
         ConfigureTenant<SupplierSubmission>(b); ConfigureTenant<CaseDocument>(b); ConfigureTenant<GeoSubmission>(b); ConfigureTenant<AuditEvent>(b);
         ConfigureTenant<Producer>(b); ConfigureTenant<ProductionPlot>(b); ConfigureTenant<PlotRevision>(b);
+        ConfigureTenant<CaseDossier>(b); ConfigureTenant<CaseLot>(b); ConfigureTenant<LotContribution>(b); ConfigureTenant<ContributionPlot>(b);
         b.Entity<Supplier>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Product>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Shipment>().HasIndex(x => new { x.OrganizationId, x.ReferenceNumber }).IsUnique();
@@ -73,6 +78,29 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         b.Entity<PlotRevision>().HasIndex(x => x.ProductionPlotId).IsUnique().HasFilter("\"SupersededAtUtc\" IS NULL"); // At most one current revision per plot.
         b.Entity<PlotRevision>().Property(x => x.GeometryJson).HasColumnType("jsonb");
         b.Entity<PlotRevision>().Property(x => x.AreaHectares).HasPrecision(12, 4);
+        // Alternate keys that let the case dossier's composite foreign keys enforce producer -> plot -> revision consistency in the database.
+        b.Entity<ProductionPlot>().HasAlternateKey(x => new { x.OrganizationId, x.ProducerId, x.Id });
+        b.Entity<PlotRevision>().HasAlternateKey(x => new { x.OrganizationId, x.ProductionPlotId, x.Id });
+        // EF would otherwise drop these FK-supporting indexes as redundant with the new keys; keep them so the migration stays purely additive.
+        b.Entity<ProductionPlot>().HasIndex(x => new { x.OrganizationId, x.ProducerId });
+        b.Entity<PlotRevision>().HasIndex(x => new { x.OrganizationId, x.ProductionPlotId });
+        CaseForeignKey<CaseDossier>(b);
+        b.Entity<CaseDossier>().HasIndex(x => x.EudrCaseId).IsUnique(); // At most one dossier per case.
+        b.Entity<CaseLot>().HasOne<CaseDossier>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.CaseDossierId }).HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CaseLot>().HasIndex(x => new { x.CaseDossierId, x.Number }).IsUnique();
+        b.Entity<CaseLot>().HasIndex(x => x.CaseDossierId).IsUnique().HasFilter("\"SupersededAtUtc\" IS NULL"); // At most one current lot per dossier.
+        b.Entity<CaseLot>().HasIndex(x => new { x.OrganizationId, x.LotReference }).IsUnique().HasFilter("\"SupersededAtUtc\" IS NULL"); // Versioned reference: unique among current lots only.
+        b.Entity<CaseLot>().Property(x => x.LotReference).HasMaxLength(100);
+        b.Entity<CaseLot>().Property(x => x.Quantity).HasPrecision(20, 6);
+        b.Entity<LotContribution>().HasAlternateKey(x => new { x.OrganizationId, x.Id, x.ProducerId });
+        b.Entity<LotContribution>().HasOne<CaseLot>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.CaseLotId }).HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<LotContribution>().HasOne<Producer>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ProducerId }).HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<LotContribution>().HasIndex(x => new { x.CaseLotId, x.ProducerId }).IsUnique();
+        b.Entity<LotContribution>().Property(x => x.Quantity).HasPrecision(20, 6);
+        b.Entity<ContributionPlot>().HasOne<LotContribution>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.LotContributionId, x.ProducerId }).HasPrincipalKey(x => new { x.OrganizationId, x.Id, x.ProducerId }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<ContributionPlot>().HasOne<ProductionPlot>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ProducerId, x.ProductionPlotId }).HasPrincipalKey(x => new { x.OrganizationId, x.ProducerId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<ContributionPlot>().HasOne<PlotRevision>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ProductionPlotId, x.PlotRevisionId }).HasPrincipalKey(x => new { x.OrganizationId, x.ProductionPlotId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<ContributionPlot>().HasIndex(x => new { x.LotContributionId, x.ProductionPlotId }).IsUnique();
         foreach (var type in b.Model.GetEntityTypes())
         foreach (var property in type.GetProperties().Where(p => p.ClrType == typeof(string) && p.GetMaxLength() == null && p.GetColumnType() != "jsonb"))
             property.SetMaxLength(4000);
@@ -97,6 +125,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         [typeof(GeoSubmission)] = (nameof(GeoSubmission.SupersededAtUtc), []),
         [typeof(SupplierSubmission)] = (nameof(SupplierSubmission.SupersededAtUtc), []),
         [typeof(PlotRevision)] = (nameof(PlotRevision.SupersededAtUtc), []),
+        [typeof(CaseLot)] = (nameof(CaseLot.SupersededAtUtc), []),
     };
     private static void EnforceRetainedEvidence(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Entity> entry)
     {
@@ -116,14 +145,22 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         if (entry.State == EntityState.Modified && entry.Entity is ProductionPlot && entry.Property(nameof(ProductionPlot.ProducerId)).IsModified)
             throw new InvalidOperationException("A production plot's producer is immutable; register a new plot instead.");
     }
+    // Case dossier anchors, lot contributions and plot links are fully immutable and never deleted (new facts = a new CaseLot version).
+    // Application-level only, like the guards above.
+    private static void EnforceDossierImmutable(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Entity> entry)
+    {
+        if (entry.State is EntityState.Modified or EntityState.Deleted)
+            throw new InvalidOperationException("Case dossier rows are immutable; save a new lot version.");
+    }
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         foreach (var entry in ChangeTracker.Entries<Entity>())
         {
             if (entry.Entity is AuditEvent && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Audit events are append-only.");
-            if (entry.Entity is CaseDocument or GeoSubmission or SupplierSubmission or PlotRevision) EnforceRetainedEvidence(entry);
+            if (entry.Entity is CaseDocument or GeoSubmission or SupplierSubmission or PlotRevision or CaseLot) EnforceRetainedEvidence(entry);
             if (entry.Entity is Producer or ProductionPlot) EnforceProvenanceIdentity(entry);
+            if (entry.Entity is CaseDossier or LotContribution or ContributionPlot) EnforceDossierImmutable(entry);
             if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted)) continue;
             if (entry.Entity is TenantEntity owned && (TenantId == Guid.Empty || owned.OrganizationId != TenantId ||
                 (entry.State != EntityState.Added && entry.OriginalValues.GetValue<Guid>(nameof(TenantEntity.OrganizationId)) != TenantId)))
