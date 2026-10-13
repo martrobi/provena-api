@@ -99,3 +99,41 @@ public sealed class ProductionPlotUpdateValidator : AbstractValidator<Production
         RuleFor(x => x.IsActive).NotNull().WithMessage("isActive is required.");
     }
 }
+// Structural / factual validation of a case lot only: no completeness, sufficiency or cut-off-date rules. Production period: both dates or neither, start <= end.
+public sealed class ContributionPlotValidator : AbstractValidator<ContributionPlotInput>
+{
+    public ContributionPlotValidator()
+    {
+        RuleFor(x => x.ProductionPlotId).NotEmpty(); RuleFor(x => x.PlotRevisionId).NotEmpty();
+        RuleFor(x => x.ProductionEndDate).NotNull().When(x => x.ProductionStartDate.HasValue).WithMessage("Production end date is required when a start date is given.");
+        RuleFor(x => x.ProductionStartDate).NotNull().When(x => x.ProductionEndDate.HasValue).WithMessage("Production start date is required when an end date is given.");
+        RuleFor(x => x.ProductionEndDate).Must((x, end) => x.ProductionStartDate <= end).When(x => x.ProductionStartDate.HasValue && x.ProductionEndDate.HasValue).WithMessage("Production start date must be on or before the end date.");
+    }
+}
+public sealed class LotContributionValidator : AbstractValidator<LotContributionInput>
+{
+    public LotContributionValidator()
+    {
+        RuleFor(x => x.ProducerId).NotEmpty();
+        RuleFor(x => x.Quantity).GreaterThan(0).LessThan(100000000000000m).PrecisionScale(20, 6, true);
+        RuleFor(x => x.Unit).IsInEnum().NotEqual(QuantityUnit.Other).WithMessage("Unit 'Other' is not supported for lot quantities.");
+        RuleFor(x => x.Plots).NotNull().Must(p => p == null || p.Count <= 500).WithMessage("At most 500 plot links are allowed per contribution.");
+        RuleForEach(x => x.Plots).NotNull().SetValidator(new ContributionPlotValidator()).When(x => x.Plots != null);
+        RuleFor(x => x.Plots).Must(p => p!.Select(l => l?.ProductionPlotId).Distinct().Count() == p!.Count).When(x => x.Plots != null).WithMessage("A production plot may appear only once per contribution.");
+    }
+}
+public sealed class CaseLotValidator : AbstractValidator<CaseLotInput>
+{
+    public CaseLotValidator()
+    {
+        RuleFor(x => x.LotReference).NotEmpty().MaximumLength(100);
+        RuleFor(x => x.Quantity).GreaterThan(0).LessThan(100000000000000m).PrecisionScale(20, 6, true);
+        RuleFor(x => x.Unit).IsInEnum().NotEqual(QuantityUnit.Other).WithMessage("Unit 'Other' is not supported for lot quantities.");
+        RuleFor(x => x.Note).MaximumLength(4000);
+        RuleFor(x => x.Contributions).NotNull().Must(c => c == null || c.Count <= 200).WithMessage("At most 200 contributions are allowed.");
+        RuleForEach(x => x.Contributions).NotNull().SetValidator(new LotContributionValidator()).When(x => x.Contributions != null);
+        RuleFor(x => x.Contributions).Must(c => c!.Select(i => i?.ProducerId).Distinct().Count() == c!.Count).When(x => x.Contributions != null).WithMessage("A producer may appear only once per lot.");
+        RuleFor(x => x.Contributions).Must(c => c!.Sum(i => i?.Plots?.Count ?? 0) <= 5000).When(x => x.Contributions != null).WithMessage("At most 5000 plot links are allowed per lot.");
+        RuleForEach(x => x.Contributions).Must((lot, c) => c == null || c.Unit == lot.Unit).When(x => x.Contributions != null).WithMessage("Contribution unit must equal the lot unit; units are not converted.");
+    }
+}

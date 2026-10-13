@@ -10,6 +10,6 @@ An ADR preserves a significant decision, its context and consequences. It is not
 | [0004: paginated collection endpoints](0004-paginated-collection-endpoints.md) | Accepted by owner approval of the plan; implemented |
 | [0005: retained evidence](0005-retained-evidence-append-only-rows.md) | Accepted by owner approval of the plan; implemented (write paths and internal history read API) |
 | [0006: production provenance](0006-production-provenance-plot-revisions.md) | Accepted by owner approval of the plan; partial (persistence model and internal API implemented; case-lot attribution via 0007) |
-| [0007: case dossier and lot attribution](0007-case-dossier-lot-attribution.md) | Accepted by owner approval of the plan; partial (persistence model implemented; API, shipment lock and export follow) |
+| [0007: case dossier and lot attribution](0007-case-dossier-lot-attribution.md) | Accepted by owner approval of the plan; implemented (model, internal API, shipment lock, export additions) |
 
 Status vocabulary: Proposed (awaiting owner decision), Accepted (approved direction), Observed baseline (source-derived, history unknown), Superseded (link replacement). Track implementation separately: not implemented / partial / implemented with evidence. Never convert a target decision into a claim about current schema. Supersede material decisions rather than silently rewriting their history; correct factual mistakes transparently.

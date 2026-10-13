@@ -26,7 +26,7 @@ public sealed class ShipmentService(AppDbContext db, TenantContext tenant, IVali
         {
             var caseId = await db.Cases.Where(x => x.ShipmentId == id).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct) ?? throw ApiException.NotFound();
             c = await cases.Lock(caseId, ct); CaseService.EnsureEditable(c);
-            if (await db.SupplierRequests.AnyAsync(x => x.EudrCaseId == c.Id, ct) || await db.Requirements.AnyAsync(x => x.EudrCaseId == c.Id && x.Status != RequirementStatus.Missing && x.Status != RequirementStatus.NotRequired, ct)) throw ApiException.Conflict("Shipment cannot be edited after a supplier request or evidence submission. Archive and create a new shipment to preserve reviewed evidence.");
+            if (await db.SupplierRequests.AnyAsync(x => x.EudrCaseId == c.Id, ct) || await db.CaseDossiers.AnyAsync(x => x.EudrCaseId == c.Id, ct) || await db.Requirements.AnyAsync(x => x.EudrCaseId == c.Id && x.Status != RequirementStatus.Missing && x.Status != RequirementStatus.NotRequired, ct)) throw ApiException.Conflict("Shipment cannot be edited after a supplier request, evidence submission or case dossier lot. Archive and create a new shipment to preserve reviewed evidence.");
             shipment = await db.Shipments.SingleAsync(x => x.Id == id, ct);
         }
         else

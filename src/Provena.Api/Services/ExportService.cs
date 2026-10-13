@@ -9,7 +9,7 @@ using Provena.Api.Data;
 using Provena.Api.Infrastructure;
 namespace Provena.Api.Services;
 public sealed record ExportResult(Stream Stream, string FileName);
-public sealed class ExportService(AppDbContext db, CaseService cases, IFileStorage storage, AuditService audit)
+public sealed class ExportService(AppDbContext db, CaseService cases, CaseDossierService dossiers, IFileStorage storage, AuditService audit)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
     public async Task<ExportResult> Export(Guid id, CancellationToken ct)
@@ -24,6 +24,11 @@ public sealed class ExportService(AppDbContext db, CaseService cases, IFileStora
         var withdrawnDocuments = await db.Documents.CountAsync(x => x.EudrCaseId == id && x.WithdrawnAtUtc != null, ct);
         var supersededGeolocations = await db.Geolocations.CountAsync(x => x.EudrCaseId == id && x.SupersededAtUtc != null, ct);
         var supersededSupplierSubmissions = await db.Submissions.CountAsync(x => x.EudrCaseId == id && x.SupersededAtUtc != null, ct);
+        var supersededLotVersions = await db.CaseLots.CountAsync(x => x.SupersededAtUtc != null && db.CaseDossiers.Any(d => d.Id == x.CaseDossierId && d.EudrCaseId == id), ct);
+        var dossier = await dossiers.Dossier(id, ct);
+        // Distinct pinned revisions of the current lot only; the stored normalized geometry is written once per revision.
+        var pinnedIds = dossier?.CurrentLot.Contributions.SelectMany(x => x.Plots).Select(x => x.PlotRevisionId).Distinct().ToList() ?? [];
+        var pinnedRevisions = pinnedIds.Count == 0 ? [] : await db.PlotRevisions.AsNoTracking().Where(x => pinnedIds.Contains(x.Id)).OrderBy(x => x.Id).ToListAsync(ct);
         var reference = SafeName(details.Shipment.ReferenceNumber);
         // Disk-backed temporary stream avoids loading the entire package into RAM.
         var temp = Path.Combine(Path.GetTempPath(), $"provena-{Guid.NewGuid():N}.zip");
@@ -47,7 +52,9 @@ public sealed class ExportService(AppDbContext db, CaseService cases, IFileStora
                         exportedAtUtc = DateTimeOffset.UtcNow,
                         notice = "Operational documentation only. ReadyForExport is not a legal EUDR compliance determination.",
                         evidenceScope = "Current working evidence at export time. This is not a reviewed dossier snapshot; withdrawn or superseded versions are retained in Provena and are not included.",
-                        retainedNotIncluded = new { withdrawnDocuments, supersededGeolocations, supersededSupplierSubmissions }
+                        dossier,
+                        dossierScope = "Current operator dossier lot at export time; not a reviewed dossier snapshot and not a completeness or compliance determination.",
+                        retainedNotIncluded = new { withdrawnDocuments, supersededGeolocations, supersededSupplierSubmissions, supersededLotVersions }
                     }, Json, ct);
                 var summary = zip.CreateEntry(prefix + "summary.csv");
                 await using (var writer = new StreamWriter(summary.Open(), new UTF8Encoding(true)))
@@ -58,6 +65,8 @@ public sealed class ExportService(AppDbContext db, CaseService cases, IFileStora
                 }
                 foreach (var d in docs)
                 { await using var input = await storage.OpenReadAsync(d.StorageKey, ct); await using var output = zip.CreateEntry(prefix + $"documents/{d.Id:N}-{SafeName(d.OriginalFileName)}").Open(); await input.CopyToAsync(output, ct); }
+                foreach (var revision in pinnedRevisions)
+                { await using var output = zip.CreateEntry(prefix + $"plots/{revision.Id:N}.geojson").Open(); await output.WriteAsync(Encoding.UTF8.GetBytes(revision.GeometryJson), ct); }
                 if (geo != null)
                 { await using var input = await storage.OpenReadAsync(geo.StorageKey, ct); await using var output = zip.CreateEntry(prefix + "geolocation/original.geojson").Open(); await input.CopyToAsync(output, ct); }
             }

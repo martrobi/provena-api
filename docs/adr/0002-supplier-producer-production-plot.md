@@ -2,7 +2,7 @@
 
 - Date: 2026-10-11
 - Decision status: Accepted target direction
-- Implementation status: Partial. Supplier and case-level geolocation exist; Producer, ProductionPlot and PlotRevision exist with an internal authenticated API ([ADR 0006](0006-production-provenance-plot-revisions.md)). The case dossier / lot-to-plot attribution persistence model exists ([ADR 0007](0007-case-dossier-lot-attribution.md); no API yet). Supplier/producer relationships are not implemented
+- Implementation status: Partial. Supplier and case-level geolocation exist; Producer, ProductionPlot and PlotRevision exist with an internal authenticated API ([ADR 0006](0006-production-provenance-plot-revisions.md)). The case dossier / lot-to-plot attribution model and internal API exist ([ADR 0007](0007-case-dossier-lot-attribution.md)). Supplier/producer relationships are not implemented
 - Approval evidence: Owner's attached foundation brief explicitly states this direction
 
 ## Context

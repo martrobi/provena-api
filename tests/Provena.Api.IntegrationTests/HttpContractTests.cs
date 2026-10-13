@@ -251,6 +251,7 @@ public sealed class HttpContractTests(ApiFactory factory)
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/geolocation"), (HttpMethod.Post, "/api/import/suppliers"),
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/evidence-history"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/geolocation/{geoId}/file"),
             (HttpMethod.Get, "/api/producers"), (HttpMethod.Post, "/api/producers"), (HttpMethod.Get, $"/api/producers/{id}"), (HttpMethod.Put, $"/api/producers/{id}"),
+            (HttpMethod.Get, $"/api/eudr-cases/{caseId}/dossier"), (HttpMethod.Put, $"/api/eudr-cases/{caseId}/dossier/lot"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/dossier/lot-history"),
             (HttpMethod.Get, "/api/production-plots"), (HttpMethod.Post, "/api/production-plots"), (HttpMethod.Get, $"/api/production-plots/{id}"), (HttpMethod.Put, $"/api/production-plots/{id}"),
             (HttpMethod.Get, $"/api/production-plots/{id}/revisions"), (HttpMethod.Post, $"/api/production-plots/{id}/revisions"), (HttpMethod.Get, $"/api/production-plots/{id}/revisions/{id}"),
         };
@@ -298,6 +299,35 @@ public sealed class HttpContractTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.UnsupportedMediaType, (await a.PostAsync("/api/import/suppliers", RawJson("{}"))).StatusCode);
     }
 
+
+    [Fact]
+    public async Task Dossier_json_uses_string_enums_iso_dates_numeric_decimals_and_no_organization_id()
+    {
+        var (a, b) = await Tenants(); var caseId = await Case(a);
+        var producer = await Json(await a.PostAsJsonAsync("/api/producers", new { name = "Contract producer", countryCode = "BR" }));
+        var plotBody = $$"""{"producerId":"{{producer.GetProperty("id").GetGuid()}}","name":"Contract plot","initialRevision":{"countryCode":"BR","geometry":{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]},"areaHectares":1.5} }""";
+        var plot = await Json(await a.PostAsync("/api/production-plots", RawJson(plotBody)));
+        var body = new
+        {
+            lotReference = "CONTRACT-" + Guid.NewGuid().ToString("N")[..8], quantity = 10.5m, unit = "Kg", note = "n",
+            contributions = new[] { new { producerId = producer.GetProperty("id").GetGuid(), quantity = 10.5m, unit = "Kg", plots = new[] { new { productionPlotId = plot.GetProperty("id").GetGuid(), plotRevisionId = plot.GetProperty("currentRevision").GetProperty("id").GetGuid(), productionStartDate = "2024-03-01", productionEndDate = "2024-04-30" } } } }
+        };
+        var response = await a.PutAsJsonAsync($"/api/eudr-cases/{caseId}/dossier/lot", body); var dossier = await Json(response);
+        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+        var lot = dossier.GetProperty("currentLot"); var link = lot.GetProperty("contributions")[0].GetProperty("plots")[0];
+        Assert.Equal("Kg", lot.GetProperty("unit").GetString()); Assert.Equal("Kg", dossier.GetProperty("shipmentUnit").GetString());
+        Assert.Equal("Reconciled", lot.GetProperty("reconciliation").GetProperty("status").GetString());
+        Assert.Equal("Polygon", link.GetProperty("geometryType").GetString());
+        Assert.Equal("2024-03-01", link.GetProperty("productionStartDate").GetString()); Assert.Equal("2024-04-30", link.GetProperty("productionEndDate").GetString());
+        Assert.Equal(JsonValueKind.Number, lot.GetProperty("quantity").ValueKind); Assert.Equal(10.5m, lot.GetProperty("quantity").GetDecimal());
+        Assert.Equal(JsonValueKind.Number, lot.GetProperty("reconciliation").GetProperty("remainingQuantity").ValueKind);
+        Assert.Equal(JsonValueKind.Number, dossier.GetProperty("shipmentQuantity").ValueKind); Assert.Equal(JsonValueKind.Number, link.GetProperty("areaHectares").ValueKind);
+        Assert.DoesNotContain("organizationid", dossier.GetRawText().ToLowerInvariant());
+        Assert.DoesNotContain("organizationid", (await Json(await a.GetAsync($"/api/eudr-cases/{caseId}/dossier/lot-history"))).GetRawText().ToLowerInvariant());
+        // Integer enum values are not accepted on input, matching the rest of the API.
+        Assert.Equal(HttpStatusCode.BadRequest, (await a.PutAsync($"/api/eudr-cases/{caseId}/dossier/lot", RawJson("""{"lotReference":"X","quantity":1,"unit":0,"contributions":[]}"""))).StatusCode);
+        await Problem(await b.GetAsync($"/api/eudr-cases/{caseId}/dossier"), HttpStatusCode.NotFound);
+    }
     [Fact]
     public async Task Openapi_document_lists_every_route()
     {
@@ -311,12 +341,13 @@ public sealed class HttpContractTests(ApiFactory factory)
             "/api/eudr-cases/{caseId}/supplier-request", "/api/eudr-cases/{caseId}/complete", "/api/eudr-cases/{caseId}/export", "/api/dashboard",
             "/api/supplier-requests/{id}/revoke", "/api/supplier-requests/{id}/regenerate", "/api/eudr-cases/{caseId}/documents",
             "/api/eudr-cases/{caseId}/documents/{documentId}", "/api/eudr-cases/{caseId}/geolocation", "/api/eudr-cases/{caseId}/evidence-history", "/api/eudr-cases/{caseId}/geolocation/{geolocationId}/file", "/api/import/suppliers", "/api/import/products",
+            "/api/eudr-cases/{caseId}/dossier", "/api/eudr-cases/{caseId}/dossier/lot", "/api/eudr-cases/{caseId}/dossier/lot-history",
             "/api/producers", "/api/producers/{id}", "/api/production-plots", "/api/production-plots/{id}", "/api/production-plots/{plotId}/revisions", "/api/production-plots/{plotId}/revisions/{revisionId}",
             "/api/import/shipments", "/public/supplier-requests/{token}", "/public/supplier-requests/{token}/details", "/public/supplier-requests/{token}/documents",
             "/public/supplier-requests/{token}/geolocation", "/public/supplier-requests/{token}/complete",
         })
             Assert.Contains(path, paths);
-        Assert.Equal(37, paths.Count);
+        Assert.Equal(40, paths.Count);
         var login = document.GetProperty("paths").GetProperty("/api/auth/login").GetProperty("post");
         Assert.False(login.TryGetProperty("security", out _));
         Assert.True(document.GetProperty("paths").GetProperty("/api/suppliers").GetProperty("get").TryGetProperty("security", out _));

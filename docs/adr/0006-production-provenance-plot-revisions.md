@@ -2,7 +2,7 @@
 
 - Date: 2026-10-13
 - Decision status: Accepted
-- Implementation status: Partial. The persistence model, guards, plot geometry validation, migration `ProductionProvenance` and the internal authenticated producer/plot/revision API (`ProvenanceService`) are implemented. Attribution of case lots/quantities to plot revisions is specified by [ADR 0007](0007-case-dossier-lot-attribution.md) (persistence model implemented there; API pending).
+- Implementation status: Partial. The persistence model, guards, plot geometry validation, migration `ProductionProvenance` and the internal authenticated producer/plot/revision API (`ProvenanceService`) are implemented. Attribution of case lots/quantities to plot revisions is specified by [ADR 0007](0007-case-dossier-lot-attribution.md) (implemented there: model and internal API).
 - Decision owner / approval evidence: Owner approval of `docs/plans/2026-10-production-provenance.md` (2026-10-13): D1 approved with clarification (producer-scoped plot registration), D2 approved as recommended, D3-D5 approved.
 - Supersedes / superseded by: refines [ADR 0002](0002-supplier-producer-production-plot.md) (does not supersede it).
 

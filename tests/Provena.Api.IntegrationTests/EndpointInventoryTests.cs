@@ -41,6 +41,8 @@ public sealed class EndpointInventoryTests(ApiFactory factory)
         new("GET", "api/production-plots", Access.Authenticated), new("GET", "api/production-plots/{id:guid}", Access.Authenticated), new("POST", "api/production-plots", Access.Authenticated),
         new("PUT", "api/production-plots/{id:guid}", Access.Authenticated), new("POST", "api/production-plots/{plotId:guid}/revisions", Access.Authenticated),
         new("GET", "api/production-plots/{plotId:guid}/revisions", Access.Authenticated), new("GET", "api/production-plots/{plotId:guid}/revisions/{revisionId:guid}", Access.Authenticated),
+        new("GET", "api/eudr-cases/{caseId:guid}/dossier", Access.Authenticated), new("PUT", "api/eudr-cases/{caseId:guid}/dossier/lot", Access.Authenticated),
+        new("GET", "api/eudr-cases/{caseId:guid}/dossier/lot-history", Access.Authenticated),
         new("GET", "public/supplier-requests/{token}", Access.Anonymous, "supplier", true), new("PUT", "public/supplier-requests/{token}/details", Access.Anonymous, "supplier", true),
         new("POST", "public/supplier-requests/{token}/documents", Access.Anonymous, "supplier", true), new("POST", "public/supplier-requests/{token}/geolocation", Access.Anonymous, "supplier", true),
         new("POST", "public/supplier-requests/{token}/complete", Access.Anonymous, "supplier", true),

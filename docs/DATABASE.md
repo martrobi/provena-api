@@ -56,7 +56,7 @@ All application relationships above use DeleteBehavior.Restrict / SQL ON DELETE 
 
 The request partial index counts expired or completed requests until revoked; this matches Create's refusal when any non-revoked request exists. It does not enforce expiry or delivery semantics.
 
-New alternate keys exist only to support the dossier chain FKs: `ProductionPlots (OrganizationId, ProducerId, Id)` and `PlotRevisions (OrganizationId, ProductionPlotId, Id)`. "Exactly one current lot once a dossier exists" is not a database constraint (the unique index allows none): the first lot save creates the dossier and lot 1 in one transaction, and a supersede is saved before the successor is inserted (a later `CaseDossierService` obligation). `CaseDossiers.CreatedByUserId` and `CaseLots.CreatedByUserId` have no FK.
+New alternate keys exist only to support the dossier chain FKs: `ProductionPlots (OrganizationId, ProducerId, Id)` and `PlotRevisions (OrganizationId, ProductionPlotId, Id)`. "Exactly one current lot once a dossier exists" is not a database constraint (the unique index allows none): the first lot save creates the dossier and lot 1 in one transaction, and a supersede is saved before the successor is inserted (a `CaseDossierService` obligation). `CaseDossiers.CreatedByUserId` and `CaseLots.CreatedByUserId` have no FK.
 
 "At least one current revision" is not a database constraint: a plot is created together with revision 1, and a supersede happens in the same transaction as the insert of its successor (a `ProvenanceService` obligation). `Producers.CreatedByUserId`, `ProductionPlots.CreatedByUserId` and `PlotRevisions.CreatedByUserId` have no FK, like the other attribution ids.
 

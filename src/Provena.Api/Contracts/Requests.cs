@@ -33,6 +33,16 @@ public sealed record PlotRevisionSummaryDto(Guid Id, int Number, string CountryC
 public sealed record PlotRevisionDto(Guid Id, Guid ProductionPlotId, int Number, string CountryCode, PlotGeometryType GeometryType, JsonElement Geometry, decimal? AreaHectares, string? Note, Guid? CreatedByUserId, DateTimeOffset CreatedAtUtc, DateTimeOffset? SupersededAtUtc);
 public sealed record ProductionPlotListItem(Guid Id, Guid ProducerId, string Name, string? ExternalReference, bool IsActive, DateTimeOffset UpdatedAtUtc, PlotRevisionSummaryDto CurrentRevision);
 public sealed record ProductionPlotDto(Guid Id, Guid ProducerId, string Name, string? ExternalReference, string? Notes, bool IsActive, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, PlotRevisionDto CurrentRevision);
+// Case dossier: the PUT body is the complete factual state of the case's one lot (header, producer contributions, plot/revision links).
+public sealed record CaseLotInput(string LotReference, decimal Quantity, QuantityUnit Unit, string? Note, List<LotContributionInput> Contributions);
+public sealed record LotContributionInput(Guid ProducerId, decimal Quantity, QuantityUnit Unit, List<ContributionPlotInput> Plots);
+public sealed record ContributionPlotInput(Guid ProductionPlotId, Guid PlotRevisionId, DateOnly? ProductionStartDate, DateOnly? ProductionEndDate);
+public enum QuantityReconciliationStatus { UnderAllocated, Reconciled }
+public sealed record QuantityReconciliationDto(decimal AllocatedQuantity, decimal RemainingQuantity, QuantityReconciliationStatus Status);
+public sealed record ContributionPlotDto(Guid Id, Guid ProductionPlotId, string PlotName, bool PlotIsActive, Guid PlotRevisionId, int RevisionNumber, string CountryCode, PlotGeometryType GeometryType, decimal? AreaHectares, DateTimeOffset? RevisionSupersededAtUtc, DateOnly? ProductionStartDate, DateOnly? ProductionEndDate);
+public sealed record LotContributionDto(Guid Id, Guid ProducerId, string ProducerName, bool ProducerIsActive, decimal Quantity, QuantityUnit Unit, List<ContributionPlotDto> Plots);
+public sealed record CaseLotDto(Guid Id, int Number, string LotReference, decimal Quantity, QuantityUnit Unit, string? Note, QuantityReconciliationDto Reconciliation, List<LotContributionDto> Contributions, Guid? CreatedByUserId, DateTimeOffset CreatedAtUtc, DateTimeOffset? SupersededAtUtc);
+public sealed record CaseDossierDto(Guid Id, Guid EudrCaseId, DateTimeOffset CreatedAtUtc, decimal ShipmentQuantity, QuantityUnit ShipmentUnit, CaseLotDto CurrentLot);
 public static class DtoMaps
 {
     public static DocumentDto ToDto(this CaseDocument d) => new(d.Id, d.OriginalFileName, d.ContentType, d.SizeBytes, d.Category, d.UploadedByType, d.UploadedAtUtc, d.WithdrawnAtUtc);
