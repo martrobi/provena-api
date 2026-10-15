@@ -54,6 +54,7 @@ Each handoff should contain:
 8. Compatibility risks
 9. Out-of-scope items
 10. Backend verification performed
+11. Local frontend/backend compatibility evidence: both checkout revisions/dirty state, exact command, result or an explicit not-run reason
 
 Include representative JSON examples when they materially clarify the contract.
 
@@ -63,3 +64,7 @@ Do not assume the backend agent knows the structure of the frontend repository.
 
 Describe what the client must adapt to, not which frontend files or components
 must be changed, unless a cross-repository contract explicitly defines them.
+
+## Executable local check
+
+Follow [CHANGE_WORKFLOW](../CHANGE_WORKFLOW.md) and the companion client `docs/LOCAL_TESTING.md`. The client live suite exercises the actual local API; mocked browser tests are a separate UI check. Do not add CI/CD or deployment: the owner has deferred them. Existing historical handoffs are not retroactively passing compatibility reports.

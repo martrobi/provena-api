@@ -90,3 +90,7 @@ Known missing coverage includes import header/size/row-limit and cross-tenant re
 ## Reporting
 
 Record exact commands and exit status; distinguish passed, failed, blocked and not run. Missing SDK/Docker/feed access is an environment blocker. Missing source is a repository blocker. An assertion failure is different from either. Never replace PostgreSQL integration tests with in-memory EF, remove HasPendingModelChanges, weaken warnings or skip failed tests just to report success. Update docs/known blockers when resolved and preserve the historical discovery result.
+
+## Local client/API compatibility (separate repository)
+
+The companion client contains explicit local Playwright commands: `npm run test:browser` uses mocked HTTP; `npm run test:e2e` exercises this real API and PostgreSQL. See [LOCAL_DEVELOPMENT](LOCAL_DEVELOPMENT.md) and the client `docs/LOCAL_TESTING.md`. These do not replace the backend gate, and a mock browser pass is not compatibility evidence. Record the exact checkout pair and actual result in frontend handoffs per [CHANGE_WORKFLOW](CHANGE_WORKFLOW.md). CI/CD, hosting and deployment are deliberately deferred.

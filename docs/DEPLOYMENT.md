@@ -35,7 +35,9 @@ ASP.NET configuration providers are used via CreateBuilder. `.env.example` suppl
 
 These are source-derived setup instructions, not a successful deployment transcript. Do not point migrations or smoke tests at production during local verification.
 
-## Production gaps to resolve in a separate task
+## Deferred production work (not the current development phase)
+
+The owner currently develops locally and does not want CI/CD, deployment or hosting work. The following items remain future operational considerations, not prerequisites for ordinary local feature development. See [LOCAL_DEVELOPMENT](LOCAL_DEVELOPMENT.md).
 
 - Real email delivery: DevelopmentEmailSender is registered in every environment and logs instead of sending. SentAtUtc is not proof of delivery. Delivery currently follows DB commit; decide retry/outbox and one-time link handling.
 - TLS/proxy/forwarded-header trust, correct client IP for throttling, token-path redaction in access logs, allowed origins/hosts and safe supplier frontend handling.

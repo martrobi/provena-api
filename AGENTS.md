@@ -1,136 +1,16 @@
 # Provena agent entry point
 
-Provena is a .NET 10 Minimal API application for collecting and reviewing EUDR workflow evidence. It does not determine legal compliance or submit a DDS.
+Provena is a .NET 10 Minimal API for EUDR evidence collection and review. It does not determine legal compliance or submit DDS declarations.
 
-Read this file first; **do not load all documentation or skills by default**. Choose the smallest relevant route below, then inspect the named implementation and its tests. Paths are relative to the repository root.
+## Working agreement
 
-## Agent compatibility
-
-This `AGENTS.md` is the canonical repository instruction source for OpenAI Codex and Claude Code. Do not duplicate these project rules in tool-specific instruction files. If a tool-specific adapter is ever needed, it must reference/import this file and contain only tool-specific behaviour.
-
-The procedures under `.agents/skills/*/SKILL.md` are also canonical. Follow the routed procedure when this file points to it even if the current client does not auto-discover `.agents/skills` as a native skills directory.
-
-## User intent and repository-level changes
-
-Interpret user requests by intent, not by the files explicitly mentioned.
-
-The user is not expected to know which source files, tests, documentation, agent instructions, skills, migrations, scripts, or configuration files must change.
-
-Treat every implementation task as a repository-level change. Determine the complete coherent set of changes required to satisfy the request while keeping the repository internally consistent.
-
-Do not stop at the first obvious source-code edit when the requested behaviour or architecture requires coordinated changes elsewhere.
-
-For each task:
-
-1. inspect the relevant existing implementation and tests,
-2. identify all affected repository artifacts,
-3. read the smallest relevant documentation and routed skills,
-4. implement the requested behaviour,
-5. update tests and supporting artifacts that are made stale by the change,
-6. run the appropriate verification,
-7. review the final diff for consistency and unintended changes.
-
-Ask the user only when a genuine product, legal, security, domain, or architectural decision is unresolved and cannot be determined from the repository or the explicit request. Do not ask the user to identify implementation files or documentation files that can be discovered from the repository.
-
-## Change propagation
-
-When implementing a requested change, update every repository artifact that must change to keep the project correct and internally consistent.
-
-Depending on the task, this may include:
-
-- application source code,
-- tests,
-- API contracts,
-- database schema and migrations,
-- architecture documentation,
-- domain documentation,
-- security documentation,
-- testing documentation,
-- deployment/configuration documentation,
-- codebase maps,
-- ADRs,
-- scripts,
-- `AGENTS.md`,
-- relevant `.agents/skills/*/SKILL.md` procedures.
-
-Do not wait for the user to explicitly request these follow-up edits.
-
-If the implementation makes an existing instruction, architecture rule, convention, example, procedure, or documentation statement outdated, update it as part of the same task.
-
-Do not update unrelated documentation or agent instructions merely for completeness. Changes must be caused by the requested task.
-
-## Frontend handoffs
-
-The frontend is maintained in a separate repository and is not automatically
-available to backend agents.
-
-When a backend change modifies an externally observable contract or behaviour
-that a separate frontend must adapt to, create or update a focused frontend
-handoff document under `docs/frontend-handoffs/`.
-
-Typical triggers include:
-
-- endpoint additions or removals,
-- request or response shape changes,
-- status code or ProblemDetails changes,
-- validation rules,
-- enum/value-set changes,
-- pagination, filtering, search or ordering behaviour,
-- authentication or authorization behaviour,
-- upload/download contracts,
-- workflow or state-transition changes,
-- public supplier portal behaviour.
-
-A frontend handoff must:
-
-- describe the externally observable behaviour after the change,
-- identify changed endpoints and request/response contracts,
-- include representative examples where useful,
-- clearly mark breaking changes,
-- describe required client adaptations at the contract level,
-- list relevant compatibility risks and intentional out-of-scope items,
-- report the backend verification performed.
-
-Do not prescribe frontend repository file names, component names or implementation
-details unless they are part of an explicitly agreed cross-repository contract.
-
-Backend code, executable tests and canonical API documentation remain the source
-of truth. Frontend handoff documents are implementation handoffs, not a second
-API specification.
-
-Do not create a frontend handoff for purely internal changes with no externally
-observable client impact.
-
-## Persistent decisions
-
-When a user request establishes or changes a durable project convention, architecture rule, API convention, persistence convention, security rule, domain rule, or development workflow:
-
-1. implement the change,
-2. update the owning canonical documentation,
-3. update `AGENTS.md` if future agents need to know the rule,
-4. update relevant skills if their procedure is no longer correct,
-5. add or update tests that enforce the decision where practical,
-6. add or update an ADR when the decision is significant enough to require durable architectural rationale.
-
-Examples include:
-
-- replacing MVC Controllers with Minimal APIs,
-- changing endpoint organization or API error conventions,
-- changing tenant isolation rules,
-- changing authentication or authorization architecture,
-- introducing a new persistence or migration convention,
-- changing folder/module boundaries,
-- changing the repository verification workflow.
-
-The repository must not be left in a state where the source code follows one architecture while documentation or agent instructions describe another.
-
-An explicit user request may intentionally replace an existing project rule. In that case, do not preserve the old rule merely because it appears in this file or another document. Treat the requested change as the new intended direction, surface any important consequences, and update the stale rule when implementation proceeds.
-
-## Evidence and authority
-
-For current behaviour, source code and executable tests are primary evidence; an unrun test is an expectation, not proof. Explicit owner-approved domain/security decisions govern intended changes. Documentation describes these; plans describe proposed changes and never silently override current behaviour. A task can explicitly request a change, but conflicts with an approved rule must be surfaced. Label observations, project rules, recommendations and unknowns separately. Do not normalize a security defect into a rule.
-
-Persistence lives in `src/Provena.Api/Data/AppDbContext.cs` and `Data/Migrations/`. Read [DATABASE.md](docs/DATABASE.md) for tenant filters/write guards, constraints and the frozen InitialCreate target model (`InitialCreate.TargetModel.cs`; never edit it) before schema work. Source review is not a passing runtime test.
+- This is the canonical instruction source for Codex and Claude Code. Tool adapters may import it, never duplicate project rules. Follow routed `.agents/skills` procedures even when not discovered natively.
+- Read only the relevant route below, then its actual implementation and tests. Do not load all documentation by default.
+- Work from the current checkout. Inspect `git status --short` before editing, preserve pre-existing changes, and avoid unrelated rewrites, formatting or destructive Git operations. Do not stage or commit without the user's request.
+- Complete the coherent repository-level change: code, tests and only the supporting artifacts made stale by it. See [CHANGE_WORKFLOW](docs/CHANGE_WORKFLOW.md) for coordinated changes and handoffs.
+- Ask only about unresolved product, legal, security, domain or architectural decisions; continue unambiguous work. Explicit owner decisions may replace earlier rules and must be recorded coherently.
+- Code and executable tests describe current behaviour; unrun tests are not proof. Distinguish observations, intended rules, recommendations and unknowns. Never turn a security defect into a rule.
+- **Current phase: local development only.** Do not introduce CI/CD, deployment or hosting configuration unless the owner changes this decision. Existing local Docker/PostgreSQL and integration tests remain supported. See [LOCAL_DEVELOPMENT](docs/LOCAL_DEVELOPMENT.md).
 
 ## Task routing
 
@@ -149,39 +29,21 @@ Persistence lives in `src/Provena.Api/Data/AppDbContext.cs` and `Data/Migrations
 
 Use [discovery findings](docs/AI_DISCOVERY_REPORT.md) only for baseline issues or technical-debt work. Human onboarding: [Croatian guide](docs/AI_DEVELOPMENT_GUIDE_HR.md). Important decisions: [ADR index](docs/adr/README.md).
 
-## Project rules
+## Invariants every change must preserve
 
-- Follow the current API → scoped service → DbContext boundaries unless the task explicitly changes that architecture. Do not add repositories, CQRS, mediator, new projects or packages without a concrete approved need. Match nearby style; avoid incidental reformatting.
-- The HTTP layer is Minimal APIs, not MVC Controllers ([ADR 0003](docs/adr/0003-minimal-api-http-layer.md)):
-  - Map endpoints in `src/Provena.Api/Endpoints/<Feature>/` modules, registered only through `MapProvenaEndpoints()`. Never map endpoints in Program.cs.
-  - Keep handlers thin: bind, call one service method, return `TypedResults`.
-  - Internal routes belong under the authorized `/api` group.
-  - Upload groups use `WithUploadLimits()` plus the documented antiforgery opt-out.
-  - Update `EndpointInventoryTests` whenever the route surface changes.
-  - Tenant-wide list endpoints that can grow without bound return `PageResult<T>` through `Common/Paging.cs` (`page` default 1, `pageSize` default 25, max 100, ordering ending in a unique tiebreak) ([ADR 0004](docs/adr/0004-paginated-collection-endpoints.md)). Do not paginate small nested collections or lookup-style results without a concrete reason.
-- Keep validation server-side, preserve cancellation, transactions, per-case locks and post-lock token rechecks. Queries returning tenant data must be tenant-scoped; verify enforcement, including writes and foreign references. Never trust client `OrganizationId`.
-- Keep internal routes authenticated; the public capability grants access to one request/case only. No new `IgnoreQueryFilters` use without explicit security review. Never expose token hashes, storage keys, internal notes or audit payloads through public DTOs.
-- Never physically delete or overwrite retained evidence rows/bytes (documents, geolocations, supplier submissions); withdraw or supersede them ([ADR 0005](docs/adr/0005-retained-evidence-append-only-rows.md)). Read "current" evidence through `Current()`.
-- Never log passwords, bearer tokens, public URLs, raw evidence or connection secrets. Do not commit secrets or uploaded data. Frontend checks do not authorize backend operations.
-- Supplier evidence is not reviewer acceptance. Automated geometry/format validation is not regulatory verification. `ReadyForExport` and `Completed` are operational states. Preserve current transition order unless explicitly changing it.
-- Supplier, Producer and ProductionPlot are distinct concepts, not interchangeable entities ([ADR 0002](docs/adr/0002-supplier-producer-production-plot.md), [ADR 0006](docs/adr/0006-production-provenance-plot-revisions.md)). Producer, ProductionPlot and PlotRevision exist as an internal persistence model. Never infer Supplier == Producer or convert `GeoSubmission` into plots or lot sources. Case lot attribution ([ADR 0007](docs/adr/0007-case-dossier-lot-attribution.md)) is implemented as a model plus the internal API (`CaseDossierService`, routes under `/api/eudr-cases/{caseId}/dossier`): `CaseDossier` is the stable case-owned anchor of the one physical lot, `CaseLot` rows are immutable versions (superseded, read through `Current()`), and `LotReference` is a versioned business reference unique only among current lots in an organization, not a permanent lot identity. Dossiers, contributions and plot links are fully immutable and never deleted; a link pins an exact `PlotRevision` id. New attribution (a producer, plot or different pinned revision relative to the current lot version) needs an active producer and plot, while carried-over sources stay usable; the route case is resolved and locked before the PUT body is validated; a shipment is not editable once its case has a dossier. Saving a lot never changes requirements or the case status, and nothing in it is a completeness or compliance decision. A plot belongs to one producer (immutable); a location change creates a new immutable `PlotRevision`, read through `Current()`. Producers, plots and revisions are never physically deleted; deactivate or supersede them. Ask the owner about new relationships, legal interpretations, review permissions, retention or changed status semantics before implementing those decisions. Continue unrelated unambiguous work.
-- Completeness is not compliance ([ADR 0008](docs/adr/0008-completeness-facts-and-reviewed-history.md)). Case facts come from case-owned records, not the live catalogue: the master-data copy (`CaseMasterDataVersion`) changes only through an explicit, audited refresh on an editable case; catalogue edits are advisory drift. `GET completeness` is a pure read model under a versioned policy (three separate axes; never a combined verdict or a `Compliant`-style value); the fingerprint covers facts only, and any change to its canonical form needs a new `FingerprintVersion` with the old ones kept executable. A review (`CaseRevision` + `ReviewRecord`) is an immutable, Owner-only decision recorded by `ReviewService.Create` in its fixed order (live Owner check before any case lookup or body parsing, case lock, `FOR SHARE` catalogue locks, optimistic `expectedFingerprint`/`expectedLatestReviewId`); never edit, delete or re-derive a stored review, never decide "latest" by timestamp (use the revision number), never read the live catalogue for a stored review or reviewed export, and a stale review is only superseded by a new review. A document link is presence only, not review or sufficiency; a pinned plot revision superseded later is an advisory, not staleness. Reviews do not gate `Complete`, add no release status and are not legal, risk or DDS decisions.
-- Do not weaken tests, auth, tenant boundaries, warning-as-error settings or validation to get a green build. Do not bypass persistence guards through other SaveChanges overloads, bulk writes or raw SQL without explicit review and equivalent enforcement.
+- Keep API → scoped service → DbContext boundaries. No repositories, CQRS, mediator, new projects or packages without a concrete approved need.
+- Use thin Minimal API feature modules under `Endpoints/`, registered through `MapProvenaEndpoints()`, with `TypedResults`; never map endpoints in Program.cs. Internal routes belong to authorized `/api`. Upload groups use `WithUploadLimits()` and the documented cookie-free antiforgery opt-out. Update `EndpointInventoryTests` when routes change.
+- Growing tenant-wide lists use `PageResult<T>`/`Common/Paging.cs`: default page 1, size 25, max 100, deterministic order with a unique tiebreak. Do not paginate small nested collections without need.
+- Validate on the server. Preserve cancellation, transactions, per-case locks and post-lock public-token rechecks. Enforce tenant ownership for reads, writes and foreign references; never trust client `OrganizationId`.
+- Public capabilities access one request/case only. No new `IgnoreQueryFilters` use without security review. Never expose internal notes, audit payloads, token hashes or storage keys publicly; never log secrets, tokens, public URLs or raw evidence.
+- Read [DATABASE](docs/DATABASE.md) before persistence work. Never edit the frozen `InitialCreate.TargetModel.cs`. Do not bypass guards through other save overloads, bulk writes or raw SQL without explicit review and equivalent enforcement.
+- Retained evidence is withdrawn/superseded, never overwritten/deleted; read current versions through `Current()`. Producers and plots are deactivated, not deleted. Supplier, Producer and ProductionPlot are distinct. Attribution pins exact plot revisions; never infer plots from supplier GeoJSON.
+- Supplier submission is not acceptance. Geometry validity and completeness are not compliance. `ReadyForExport`/`Completed` are operational states; Owner reviews currently do not gate completion. Do not silently change those semantics.
+- Case master data changes through explicit audited refresh. Reviews and their snapshots are immutable and Owner-only; reviewed exports use stored history, not the live catalogue. For any dossier/completeness/review change, read [EUDR_DOMAIN engineering invariants](docs/EUDR_DOMAIN.md#engineering-invariants-for-domain-changes) and ADR 0008 before editing; they retain fingerprint, lock-order, pinning and freshness rules.
+- Do not weaken tests, authorization, tenant boundaries, validation or warnings-as-errors to obtain a pass.
 
-## Finish the change
+## Finish
 
-For code/tooling changes, run `pwsh -File scripts/verify.ps1` (or `bash scripts/verify.sh`) with .NET 10 and Docker available. See TESTING for focused checks. No skipped check counts as a pass; report commands, exit status, blockers and residual risk. Documentation-only changes need path/content/diff checks, not fabricated runtime evidence.
+Run `pwsh -File scripts/verify.ps1` or `bash scripts/verify.sh` for code/tooling changes (requires .NET 10 and Docker). [TESTING](docs/TESTING.md) also documents the smaller local check without Docker; it is not the full gate. For shared behaviour, follow [CHANGE_WORKFLOW](docs/CHANGE_WORKFLOW.md) and record the local client/API compatibility result separately.
 
-Before considering a task complete, review the final diff and confirm that:
-
-- the requested behaviour is implemented,
-- affected tests are updated,
-- stale documentation has been corrected,
-- persistent rules are reflected in `AGENTS.md` when future agents need them,
-- routed skills remain accurate,
-- code moves are reflected in the codebase map when applicable,
-- no unrelated findings were silently changed.
-
-Update the owning document when public contracts, domain rules, security boundaries, persistence, configuration or verification commands change. Update the map when code moves. Add an ADR only for a durable significant decision. Trivial internal edits need no documentation ceremony.
-
-Final report: behaviour changed, files changed, evidence/tests run, blockers, residual risk, and unresolved decisions. Never claim a check passed unless it was actually run successfully. Never silently fix unrelated findings.
+Documentation-only changes need source/claim/link/diff checks. Review the final diff for unintended changes; update stale owning docs, the code map for moves, and durable instructions only when affected. No skipped check counts as passed. Report changed behaviour, important files, exact commands/results, blockers, residual risk and unresolved decisions. Never silently fix unrelated findings.

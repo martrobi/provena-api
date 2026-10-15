@@ -21,7 +21,7 @@ Markdown nije jamstvo poslušnosti, test prolaza ili sigurnosti. Njegova vrijedn
 | `AGENTS.md` | Početak svakog zadatka; pravila i usmjeravanje |
 | `docs/PRODUCT.md` | Svrha, korisnici i granice proizvoda |
 | `docs/CODEBASE_MAP.md` | Gdje je konkretan endpoint, servis, model ili test |
-| `docs/EUDR_DOMAIN.md` | Pojmovi, stvarni statusi, evidence/reviewer granica i budući Producer/Plot |
+| `docs/EUDR_DOMAIN.md` | Pojmovi, stvarni statusi, proizvođači/parcele, dosje, potpunost i Owner pregled |
 | `docs/ARCHITECTURE.md` | Tok zahtjeva, DI, transakcije i granice komponenti |
 | `docs/DATABASE.md` | Stvarni model, tenant zaštite, ograničenja i postupak migracije |
 | `docs/API.md` | HTTP ugovori, validacija, CSV i ZIP format |
@@ -97,7 +97,7 @@ Ovo je dovoljno precizan zahtjev da agent može završiti posao bez višekratnog
 
 ```text
 Pročitaj AGENTS.md, EUDR_DOMAIN.md, DATABASE.md i ADR 0002, pa samo povezani kod.
-Želim dodati Producer i ProductionPlot. U ovom zadatku napravi plan prema
+Želim proširiti postojeći Producer/ProductionPlot model odnosom prema Supplieru. U ovom zadatku napravi plan prema
 predlošku, bez implementacije. Najprije prikaži postojeći model i otvorene
 odluke: odnos Supplier–Producer, vlasništvo plotova, identitet, povezivanje sa
 shipmentom i migracija postojeće geolokacije. Ne pretpostavljaj da je svaki
@@ -166,3 +166,7 @@ Ne traži promjene dokumentacije za svako preimenovanje lokalne varijable. Kad p
 - Traženje velikog featurea preko nestabilnog builda. Prvo potvrdi bazni build i testove.
 
 Prvi korak može biti lokalna provjera bez Dockera kako je navedeno u TESTING.md; prije mergea pokreni punu provjeru s integracijskim testovima. Ako nešto padne, podijeli točan izlaz s agentom koji radi na zadatku i zatraži usku analizu uzroka. Prije schema featurea riješi povezanost početne migracije i snapshota. Za ostali razvoj koristi jasno zadane promjene s ograničenim discoveryjem.
+
+## Trenutna faza: lokalni razvoj
+
+CI/CD, deploy i hosting namjerno su odgođeni. Ne dodaj ih usput. Prije završetka promjene pokreni lokalne provjere; preskočeno nije prošlo. Za promjenu zajedničkog workflowa provjeri konkretni frontend i backend zajedno te zabilježi njihove verzije i lokalne izmjene. Koraci su u [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md).
