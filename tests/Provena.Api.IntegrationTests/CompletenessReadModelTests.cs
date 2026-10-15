@@ -133,7 +133,7 @@ public sealed class CompletenessReadModelTests(ApiFactory factory)
         var response = await c.GetAsync($"/api/eudr-cases/{w.CaseId}/completeness");
         Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
         var r = await Json(response);
-        Assert.Equal(["policy", "evaluatedAtUtc", "fingerprint", "fingerprintVersion", "applicability", "dataCoverage", "evidenceReadiness", "reviewFreshness", "latestReview", "advisories", "items"], r.EnumerateObject().Select(p => p.Name).ToArray());
+        Assert.Equal(["policy", "evaluatedAtUtc", "fingerprint", "fingerprintVersion", "applicability", "dataCoverage", "evidenceReadiness", "reviewFreshness", "latestReview", "advisories", "items", "quantityReconciliation"], r.EnumerateObject().Select(p => p.Name).ToArray());
         Assert.Equal(JsonValueKind.String, r.GetProperty("dataCoverage").ValueKind); Assert.Equal(JsonValueKind.String, r.GetProperty("evidenceReadiness").ValueKind); Assert.Equal(JsonValueKind.String, r.GetProperty("reviewFreshness").ValueKind);
         Assert.Equal(JsonValueKind.Number, r.GetProperty("fingerprintVersion").ValueKind); Assert.Equal(JsonValueKind.Null, r.GetProperty("latestReview").ValueKind);
         Assert.True(DateTimeOffset.TryParse(r.GetProperty("evaluatedAtUtc").GetString(), out var evaluated) && evaluated > DateTimeOffset.UtcNow.AddMinutes(-5));
@@ -169,7 +169,7 @@ public sealed class CompletenessReadModelTests(ApiFactory factory)
         var caseId = (await Json(await c.PostAsJsonAsync("/api/shipments", new { referenceNumber = "FRESH-" + tag, supplierId = supplier, productId = product, quantity = 10, unit = "Kg" }), HttpStatusCode.Created)).GetProperty("eudrCaseId").GetGuid();
         var result = await Completeness(c, caseId);
 
-        Assert.Equal("provena-pilot-completeness", result.GetProperty("policy").GetProperty("id").GetString()); Assert.Equal("1", result.GetProperty("policy").GetProperty("version").GetString());
+        Assert.Equal("provena-pilot-completeness", result.GetProperty("policy").GetProperty("id").GetString()); Assert.Equal("2", result.GetProperty("policy").GetProperty("version").GetString());
         Assert.NotEmpty(result.GetProperty("policy").GetProperty("limitations").EnumerateArray());
         Assert.Matches("^[0-9a-f]{64}$", Fingerprint(result)); Assert.Equal(1, result.GetProperty("fingerprintVersion").GetInt32());
         Assert.Equal("NotRecorded", result.GetProperty("applicability").GetProperty("status").GetString()); Assert.Equal(JsonValueKind.Null, result.GetProperty("applicability").GetProperty("currentVersionId").ValueKind);
@@ -192,18 +192,20 @@ public sealed class CompletenessReadModelTests(ApiFactory factory)
         var (c, org) = await Tenant();
         var under = await Build(c, org, new Opt(Contribution: 6m, Periods: false, Documents: false));
         var r = await Completeness(c, under.CaseId);
-        Assert.Equal("Satisfied", StatusOf(r, "LOT_PRESENT")); Assert.Equal("Missing", StatusOf(r, "LOT_RECONCILED")); Assert.Contains("remaining 4 Kg", Item(r, "LOT_RECONCILED").GetProperty("reason").GetString());
+        Assert.Equal("Satisfied", StatusOf(r, "LOT_PRESENT")); Assert.Equal("Invalid", StatusOf(r, "LOT_RECONCILED")); Assert.Contains("remaining 4 Kg", Item(r, "LOT_RECONCILED").GetProperty("reason").GetString());
         Assert.Equal("Missing", StatusOf(r, "SOURCE_PRODUCTION_PERIOD")); Assert.Equal("Satisfied", StatusOf(r, "SOURCE_HAS_PLOT")); Assert.Equal("Satisfied", StatusOf(r, "SOURCE_GEOLOCATION_FORM"));
         Assert.Equal("Incomplete", r.GetProperty("dataCoverage").GetString());
 
         var full = await Build(c, org, new Opt(Documents: false));
         var f = await Completeness(c, full.CaseId);
         Assert.Equal("Satisfied", StatusOf(f, "LOT_RECONCILED")); Assert.Equal("Satisfied", StatusOf(f, "SOURCE_PRODUCTION_PERIOD")); Assert.Equal("Satisfied", StatusOf(f, "SOURCE_GEOLOCATION_FORM", full.RevisionId));
-        Assert.Equal("Complete", f.GetProperty("dataCoverage").GetString()); // data coverage does not depend on the evidence group
+        // Data coverage does not depend on the evidence group. Policy v2: without documents the quantity confirmation stays required and unprovided, so the supplier-confirmed quantity is the one missing data item.
+        Assert.Equal("Incomplete", f.GetProperty("dataCoverage").GetString()); Assert.Equal("Missing", StatusOf(f, "SUPPLIER_CONFIRMED_QUANTITY_MATCH"));
+        Assert.Equal(["SUPPLIER_CONFIRMED_QUANTITY_MATCH"], f.GetProperty("items").EnumerateArray().Where(i => i.GetProperty("group").GetString() != "Evidence" && i.GetProperty("status").GetString() is "Missing" or "Invalid").Select(i => i.GetProperty("code").GetString()));
         Assert.Equal("EvidenceMissing", f.GetProperty("evidenceReadiness").GetString());
-        // The lot is not compared with the shipment quantity: a different lot quantity stays reconciled with its own contributions.
+        // Policy v2: a lot that differs from the shipment stays reconciled with its own contributions but no longer matches the shipment.
         await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{full.CaseId}/dossier/lot", new { lotReference = "LOT-X" + Guid.NewGuid().ToString("N")[..6], quantity = 25, unit = "Kg", contributions = new[] { new { producerId = full.ProducerId, quantity = 25, unit = "Kg", plots = new[] { new { productionPlotId = full.PlotId, plotRevisionId = full.RevisionId, productionStartDate = "2024-01-01", productionEndDate = "2024-02-01" } } } } }));
-        Assert.Equal("Satisfied", StatusOf(await Completeness(c, full.CaseId), "LOT_RECONCILED"));
+        var differentLot = await Completeness(c, full.CaseId); Assert.Equal("Satisfied", StatusOf(differentLot, "LOT_RECONCILED")); Assert.Equal("Invalid", StatusOf(differentLot, "SHIPMENT_LOT_QUANTITY_MATCH"));
 
         var none = await Build(c, org, new Opt(Lot: false, Documents: false));
         var n = await Completeness(c, none.CaseId);

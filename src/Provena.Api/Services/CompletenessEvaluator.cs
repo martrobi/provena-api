@@ -2,8 +2,8 @@ using System.Text.RegularExpressions;
 using Provena.Api.Contracts;
 using Provena.Api.Domain;
 namespace Provena.Api.Services;
-public sealed record CompletenessEvaluation(IReadOnlyList<CompletenessItemDto> Items, ApplicabilityStatus ApplicabilityStatus, DataCoverage DataCoverage, EvidenceReadiness EvidenceReadiness);
-// Pure evaluation of policy v1 (ADR 0008) over DossierFacts. Every item states exactly what was checked. Nothing here is a legal-compliance, safety or
+public sealed record CompletenessEvaluation(IReadOnlyList<CompletenessItemDto> Items, ApplicabilityStatus ApplicabilityStatus, DataCoverage DataCoverage, EvidenceReadiness EvidenceReadiness, QuantityReconciliationResultDto QuantityReconciliation);
+// Pure evaluation of policy v2 (ADR 0008; v2 adds Quantity Reconciliation v1) over DossierFacts. Every item states exactly what was checked. Nothing here is a legal-compliance, safety or
 // deforestation-free verdict: Satisfied means "this recorded fact satisfies this check". Item order is deterministic.
 public static partial class CompletenessEvaluator
 {
@@ -17,7 +17,7 @@ public static partial class CompletenessEvaluator
     {
         var items = new List<CompletenessItemDto>();
         var applicabilityStatus = ApplicabilityDerivation.Derive(facts.Applicability, facts.MasterData);
-        MasterData(facts, items); Applicability(facts, applicabilityStatus, items); Product(facts, items); Quantity(facts, items);
+        MasterData(facts, items); Applicability(facts, applicabilityStatus, items); Product(facts, items); var quantity = QuantityReconciliation.Evaluate(facts); Quantity(facts, quantity, items);
         Production(facts, items); Parties(facts, items); Evidence(facts, items);
 
         // Axis 1: the data groups only; EVIDENCE items never decide it.
@@ -26,7 +26,7 @@ public static partial class CompletenessEvaluator
         var evidence = items.Where(i => i.Group == CompletenessGroup.Evidence).ToList();
         var readiness = evidence.Any(i => i.Status is CompletenessItemStatus.Missing or CompletenessItemStatus.Invalid) ? EvidenceReadiness.EvidenceMissing
             : evidence.Any(i => i.Status == CompletenessItemStatus.AwaitingReview) ? EvidenceReadiness.AwaitingRequirementDecisions : EvidenceReadiness.ReadyForOwnerReview;
-        return new(items, applicabilityStatus, coverage, readiness);
+        return new(items, applicabilityStatus, coverage, readiness, quantity);
     }
 
     private static void MasterData(DossierFacts f, List<CompletenessItemDto> items)
@@ -96,22 +96,30 @@ public static partial class CompletenessEvaluator
         else items.Add(Item("PRODUCT_CN_CODE", g, CompletenessItemStatus.Invalid, "The CN code does not have a valid format (4 to 10 digits); this checks format only, not regulatory scope."));
     }
 
-    private static void Quantity(DossierFacts f, List<CompletenessItemDto> items)
+    // Policy v2 (Quantity Reconciliation v1): every comparison is exact decimal equality in one unit, with no conversion and no tolerance. The checks are derived by the pure
+    // QuantityReconciliation; the shipment == current lot rule is a pilot single-lot assumption (one shipment/case has one current CaseLot), not a permanent multi-lot rule.
+    private static void Quantity(DossierFacts f, QuantityReconciliationResultDto q, List<CompletenessItemDto> items)
     {
         const CompletenessGroup g = CompletenessGroup.Quantity;
-        if (f.Lot == null)
+        items.Add(f.Lot == null ? Item("LOT_PRESENT", g, CompletenessItemStatus.Missing, "No case lot has been recorded.")
+            : Item("LOT_PRESENT", g, CompletenessItemStatus.Satisfied, $"Case lot version {f.Lot.Number} is recorded.", "CaseLot", f.Lot.Id));
+        items.Add(QuantityItem("SHIPMENT_LOT_QUANTITY_MATCH", q, QuantityReconciliation.ShipmentLot, "CaseLot", f.Lot?.Id));
+        items.Add(QuantityItem("SUPPLIER_CONFIRMED_QUANTITY_MATCH", q, QuantityReconciliation.SupplierConfirmedShipment, "SupplierSubmission", f.Submission?.Id));
+        items.Add(QuantityItem("LOT_RECONCILED", q, QuantityReconciliation.ContributionsLot, "CaseLot", f.Lot?.Id));
+    }
+
+    // MissingData -> Missing; UnitMismatch and QuantityMismatch -> Invalid; the structured detail lives in the reconciliation result.
+    private static CompletenessItemDto QuantityItem(string code, QuantityReconciliationResultDto q, string checkCode, string subjectType, Guid? subjectId)
+    {
+        var check = q.Checks.Single(c => c.Code == checkCode);
+        var status = check.Status switch
         {
-            items.Add(Item("LOT_PRESENT", g, CompletenessItemStatus.Missing, "No case lot has been recorded."));
-            items.Add(Item("LOT_RECONCILED", g, CompletenessItemStatus.Missing, "Cannot be evaluated: no case lot has been recorded."));
-            return;
-        }
-        items.Add(Item("LOT_PRESENT", g, CompletenessItemStatus.Satisfied, $"Case lot version {f.Lot.Number} is recorded.", "CaseLot", f.Lot.Id));
-        // Exact decimal equality in the lot's own unit (Slice 4 semantics): no shipment or supplier-quantity comparison, no conversion, no tolerance.
-        var allocated = f.Contributions.Sum(x => x.Contribution.Quantity);
-        var remaining = f.Lot.Quantity - allocated;
-        items.Add(remaining == 0 && allocated <= f.Lot.Quantity
-            ? Item("LOT_RECONCILED", g, CompletenessItemStatus.Satisfied, $"Producer contributions ({Num(allocated)} {f.Lot.Unit}) equal the lot quantity exactly.", "CaseLot", f.Lot.Id)
-            : Item("LOT_RECONCILED", g, CompletenessItemStatus.Missing, $"Producer contributions ({Num(allocated)} {f.Lot.Unit}) do not equal the lot quantity ({Num(f.Lot.Quantity)} {f.Lot.Unit}); remaining {Num(remaining)} {f.Lot.Unit}.", "CaseLot", f.Lot.Id));
+            QuantityCheckStatus.Matched => CompletenessItemStatus.Satisfied,
+            QuantityCheckStatus.NotApplicable => CompletenessItemStatus.NotApplicable,
+            QuantityCheckStatus.MissingData => CompletenessItemStatus.Missing,
+            _ => CompletenessItemStatus.Invalid,
+        };
+        return subjectId == null ? Item(code, CompletenessGroup.Quantity, status, check.Reason) : Item(code, CompletenessGroup.Quantity, status, check.Reason, subjectType, subjectId);
     }
 
     private static void Production(DossierFacts f, List<CompletenessItemDto> items)

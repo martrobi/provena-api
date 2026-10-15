@@ -167,18 +167,19 @@ public sealed class CompletenessTests
 
     // ---- quantity -------------------------------------------------------------------------------------------------------------------------
     [Fact]
-    public void Lot_items_follow_the_exact_reconciliation_without_shipment_comparison_or_tolerance()
+    public void Lot_items_follow_the_exact_reconciliation_without_tolerance()
     {
         var none = Complete() with { Dossier = null, Lot = null, Contributions = [] };
         Assert.Equal(CompletenessItemStatus.Missing, Status(none, "LOT_PRESENT")); Assert.Equal(CompletenessItemStatus.Missing, Status(none, "LOT_RECONCILED"));
         Assert.Equal(CompletenessItemStatus.Satisfied, Status(Complete(), "LOT_RECONCILED"));
         var under = Complete(); under.Contributions[0].Contribution.Quantity = 9.999999m;
-        Assert.Equal(CompletenessItemStatus.Satisfied, Status(under, "LOT_PRESENT")); Assert.Equal(CompletenessItemStatus.Missing, Status(under, "LOT_RECONCILED"));
+        Assert.Equal(CompletenessItemStatus.Satisfied, Status(under, "LOT_PRESENT")); Assert.Equal(CompletenessItemStatus.Invalid, Status(under, "LOT_RECONCILED")); // policy v2: a partial allocation is a quantity mismatch, not missing data
         Assert.Contains("remaining 0.000001 Kg", Get(under, "LOT_RECONCILED").Reason);
         var equalDifferentScale = Complete(); equalDifferentScale.Contributions[0].Contribution.Quantity = 10.000000m; equalDifferentScale.Lot!.Quantity = 10m;
         Assert.Equal(CompletenessItemStatus.Satisfied, Status(equalDifferentScale, "LOT_RECONCILED"));
-        var differsFromShipment = Complete(); differsFromShipment.Shipment.Quantity = 999m; differsFromShipment.Submission!.ConfirmedQuantity = 1m;
-        Assert.Equal(CompletenessItemStatus.Satisfied, Status(differsFromShipment, "LOT_RECONCILED")); // never compared with the shipment or supplier-confirmed quantity
+        var differsFromShipment = Complete(); differsFromShipment.Shipment.Quantity = 999m; differsFromShipment.Submission!.ConfirmedQuantity = 1m; // the lot-level item itself still ignores both; the shipment and confirmed quantity have their own items
+        Assert.Equal(CompletenessItemStatus.Satisfied, Status(differsFromShipment, "LOT_RECONCILED"));
+        Assert.Equal(CompletenessItemStatus.Invalid, Status(differsFromShipment, "SHIPMENT_LOT_QUANTITY_MATCH")); Assert.Equal(CompletenessItemStatus.Invalid, Status(differsFromShipment, "SUPPLIER_CONFIRMED_QUANTITY_MATCH"));
     }
 
     // ---- production -----------------------------------------------------------------------------------------------------------------------
@@ -323,9 +324,9 @@ public sealed class CompletenessTests
     }
 
     [Fact]
-    public void Policy_v1_is_explicit_and_states_its_limitations()
+    public void Policy_v2_is_explicit_and_states_its_limitations()
     {
-        Assert.Equal("provena-pilot-completeness", CompletenessPolicy.Id); Assert.Equal("1", CompletenessPolicy.Version);
+        Assert.Equal("provena-pilot-completeness", CompletenessPolicy.Id); Assert.Equal("2", CompletenessPolicy.Version);
         var limitations = string.Join(' ', CompletenessPolicy.Limitations);
         foreach (var expected in new[] { "Coordinate precision is not evaluated", "human judgement", "EORI", "no unit conversion", "stay unsupported" }) Assert.Contains(expected, limitations);
     }
@@ -372,6 +373,24 @@ public sealed class CompletenessTests
         var c2 = new LotContribution { Id = Fixed(51), ProducerId = Guid.Parse("00000000-0000-0000-0000-0000000000c2"), Quantity = 1m, Unit = QuantityUnit.Kg };
         var x = Complete(); var y = Complete(); x = x with { Contributions = [x.Contributions[0], new(c2, [])] }; y = y with { Contributions = [new(c2, []), y.Contributions[0]] };
         Assert.Equal(Fp(x), Fp(y));
+    }
+
+    [Fact]
+    public void Fingerprint_v1_output_is_unchanged_by_quantity_reconciliation()
+    {
+        var fp = DossierFingerprint.Compute(Complete());
+        // Golden values of the fixed Complete() fixture, computed before Quantity Reconciliation v1 existed: the derived reconciliation reads facts that are already fingerprinted,
+        // so neither the fingerprint version nor any canonical byte changes. A deliberate change of the canonical form must add a new fingerprint version instead of editing these.
+        Assert.Equal(1, DossierFingerprint.CurrentVersion); Assert.Equal([1], DossierFingerprint.SupportedVersions); Assert.Equal(1, fp.Version);
+        Assert.Equal("2cc06ed492c0914bcd43c7e0e779eb278077addf6ba90f87fbd9b792807df5a1", fp.Fingerprint);
+        Assert.Equal("a9eca12f78bd7d6921d332f79cbbbd67eeefc930d8503a87ab8d2f22705fee8b", fp.SectionHashes["Shipment"]);
+        Assert.Equal("be973df4c8eecd7cd0997f618695ca7fa5eb10911c55802a7b4575e8b551162e", fp.SectionHashes["MasterData"]);
+        Assert.Equal("0f55c030b3b22ec0d92c23d618e4a2c41ad709a0d65cbaab07a1f23e9dfcdaf8", fp.SectionHashes["Applicability"]);
+        Assert.Equal("fd09528a7fd0fb7bb00447312236655ee82bd428ec3b6b9b7d6c00d63381c57e", fp.SectionHashes["Recipients"]);
+        Assert.Equal("3325329316424fdfa148fa19f1a818c30be225185b8c6e9dfb0439a7e25756bb", fp.SectionHashes["Lot"]);
+        Assert.Equal("ee376dfa2565e336d4d764dd526212ac7dd9b8702f12b6c85e762b983bc5b596", fp.SectionHashes["Requirements"]);
+        Assert.Equal("9290e9a6311eb387ceff8506e397e1e222caa718db60b268b05024f39861082d", fp.SectionHashes["Evidence"]);
+        Assert.Equal(1, ReviewSnapshot.SchemaVersion); // the review snapshot schema is unchanged too: the reconciliation is recomputed from the snapshot facts, not stored in it
     }
 
     [Fact]

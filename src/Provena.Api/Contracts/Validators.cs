@@ -50,7 +50,7 @@ public sealed class SubmissionValidator : AbstractValidator<SubmissionInput>
     public SubmissionValidator()
     {
         RuleFor(x => x.CountryOfProductionCode).Matches("^[A-Z]{2}$").When(x => !string.IsNullOrEmpty(x.CountryOfProductionCode));
-        RuleFor(x => x.ConfirmedQuantity).GreaterThan(0).LessThan(100000000000000m).When(x => x.ConfirmedQuantity.HasValue);
+        RuleFor(x => x.ConfirmedQuantity).GreaterThan(0).LessThan(100000000000000m).PrecisionScale(20, 6, true).When(x => x.ConfirmedQuantity.HasValue);
         RuleFor(x => x).Must(x => x.ProductionPeriodFrom == null || x.ProductionPeriodTo == null || x.ProductionPeriodFrom <= x.ProductionPeriodTo).WithMessage("Production period from must be on or before production period to.");
         RuleFor(x => x.Notes).MaximumLength(4000);
     }

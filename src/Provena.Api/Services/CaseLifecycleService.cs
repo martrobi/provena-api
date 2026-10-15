@@ -52,6 +52,9 @@ public sealed class CaseLifecycleService(AppDbContext db, TenantContext tenant, 
         var (reviewFreshness, latestReview) = ReviewFreshnessService.Evaluate(latest.Revision, latest.Record, state.Facts);
         if (reviewFreshness != ReviewFreshness.Current)
             throw new ApiException(409, "The latest review is stale; record a new review of the current dossier before closing the case.", new { reason = "StaleReview", changedAreas = latestReview.ChangedAreas });
+        // Quantity Reconciliation v1: the CURRENT reconciliation (same facts, same lock) must be Matched for ExternalDdsCompleted, also for a Current review made under policy v1.
+        if (CaseClosurePolicy.QuantityError(outcome, state.Evaluation.QuantityReconciliation) is { } quantityError)
+            throw new ApiException(409, quantityError, new { reason = "QuantityNotReconciled", quantityReconciliation = state.Evaluation.QuantityReconciliation });
 
         var now = DateTimeOffset.UtcNow; var previous = c.Status;
         var number = (await db.CaseClosures.Where(x => x.EudrCaseId == caseId).MaxAsync(x => (int?)x.Number, ct) ?? 0) + 1;

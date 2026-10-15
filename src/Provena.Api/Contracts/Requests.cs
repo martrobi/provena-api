@@ -38,6 +38,12 @@ public sealed record LotContributionInput(Guid ProducerId, decimal Quantity, Qua
 public sealed record ContributionPlotInput(Guid ProductionPlotId, Guid PlotRevisionId, DateOnly? ProductionStartDate, DateOnly? ProductionEndDate);
 public enum QuantityReconciliationStatus { UnderAllocated, Reconciled }
 public sealed record QuantityReconciliationDto(decimal AllocatedQuantity, decimal RemainingQuantity, QuantityReconciliationStatus Status);
+// Quantity Reconciliation v1 (completeness policy v2): derived on read and never stored. Exact decimal equality, same unit only, no conversion, no tolerance.
+public enum QuantityCheckStatus { Matched, MissingData, UnitMismatch, QuantityMismatch, NotApplicable }
+public enum QuantityReconciliationOutcome { Matched, MissingData, UnitMismatch, QuantityMismatch }
+public sealed record QuantityOperandDto(string Source, decimal? Quantity, QuantityUnit? Unit, bool UnitImplied);
+public sealed record QuantityCheckDto(string Code, QuantityCheckStatus Status, QuantityOperandDto Expected, QuantityOperandDto Actual, decimal? Difference, IReadOnlyList<string> MissingFields, string Reason);
+public sealed record QuantityReconciliationResultDto(QuantityReconciliationOutcome Outcome, IReadOnlyList<QuantityCheckDto> Checks);
 public sealed record ContributionPlotDto(Guid Id, Guid ProductionPlotId, string PlotName, bool PlotIsActive, Guid PlotRevisionId, int RevisionNumber, string CountryCode, PlotGeometryType GeometryType, decimal? AreaHectares, DateTimeOffset? RevisionSupersededAtUtc, DateOnly? ProductionStartDate, DateOnly? ProductionEndDate);
 public sealed record LotContributionDto(Guid Id, Guid ProducerId, string ProducerName, bool ProducerIsActive, decimal Quantity, QuantityUnit Unit, List<ContributionPlotDto> Plots);
 public sealed record CaseLotDto(Guid Id, int Number, string LotReference, decimal Quantity, QuantityUnit Unit, string? Note, QuantityReconciliationDto Reconciliation, List<LotContributionDto> Contributions, Guid? CreatedByUserId, DateTimeOffset CreatedAtUtc, DateTimeOffset? SupersededAtUtc);
@@ -70,7 +76,8 @@ public sealed record CompletenessApplicabilityDto(ApplicabilityStatus Status, Gu
 public sealed record CompletenessItemDto(string Code, CompletenessGroup Group, string? SubjectType, Guid? SubjectId, CompletenessItemStatus Status, string Reason);
 public sealed record CompletenessAdvisoryDto(string Code, string? Area, Guid? SubjectId, string Message);
 public sealed record CompletenessDto(CompletenessPolicyDto Policy, DateTimeOffset EvaluatedAtUtc, string Fingerprint, int FingerprintVersion, CompletenessApplicabilityDto Applicability,
-    DataCoverage DataCoverage, EvidenceReadiness EvidenceReadiness, ReviewFreshness ReviewFreshness, LatestReviewDto? LatestReview, IReadOnlyList<CompletenessAdvisoryDto> Advisories, IReadOnlyList<CompletenessItemDto> Items);
+    DataCoverage DataCoverage, EvidenceReadiness EvidenceReadiness, ReviewFreshness ReviewFreshness, LatestReviewDto? LatestReview, IReadOnlyList<CompletenessAdvisoryDto> Advisories, IReadOnlyList<CompletenessItemDto> Items,
+    QuantityReconciliationResultDto QuantityReconciliation);
 public static class DtoMaps
 {
     public static DocumentDto ToDto(this CaseDocument d) => new(d.Id, d.OriginalFileName, d.ContentType, d.SizeBytes, d.Category, d.UploadedByType, d.UploadedAtUtc, d.WithdrawnAtUtc);

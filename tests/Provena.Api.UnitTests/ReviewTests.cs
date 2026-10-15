@@ -98,13 +98,13 @@ public sealed class ReviewTests
     }
 
     // ---- freshness ----------------------------------------------------------------------------------------------------------------------
-    private static (CaseRevision Revision, ReviewRecord Record) Reviewed(DossierFacts facts, string policyVersion = "1", int fingerprintVersion = 1)
+    private static (CaseRevision Revision, ReviewRecord Record) Reviewed(DossierFacts facts, string policyVersion = CompletenessPolicy.Version, int fingerprintVersion = 1)
     {
         var fp = DossierFingerprint.Compute(facts, fingerprintVersion);
         var revision = new CaseRevision { Id = Guid.NewGuid(), Number = 1, PolicyId = CompletenessPolicy.Id, PolicyVersion = policyVersion, FingerprintVersion = fingerprintVersion, Fingerprint = fp.Fingerprint, SectionHashes = ReviewSnapshot.SerializeHashes(fp.SectionHashes) };
         return (revision, new ReviewRecord { Id = Guid.NewGuid(), CaseRevisionId = revision.Id, Decision = ReviewDecision.AcceptedAsCompleteUnderPolicy, ReviewedAtUtc = DateTimeOffset.UtcNow, PolicyVersion = policyVersion });
     }
-    private static (ReviewFreshness Freshness, LatestReviewDto Latest) Fresh(DossierFacts reviewed, DossierFacts current, string policyVersion = "1") { var (r, rec) = Reviewed(reviewed, policyVersion); return ReviewFreshnessService.Evaluate(r, rec, current); }
+    private static (ReviewFreshness Freshness, LatestReviewDto Latest) Fresh(DossierFacts reviewed, DossierFacts current, string policyVersion = CompletenessPolicy.Version) { var (r, rec) = Reviewed(reviewed, policyVersion); return ReviewFreshnessService.Evaluate(r, rec, current); }
 
     [Fact]
     public void Unchanged_facts_are_current_with_no_changed_areas_and_no_policy_change()
@@ -177,7 +177,7 @@ public sealed class ReviewTests
         Assert.Equal("Unique product name", snapshot.Context.ProductName); Assert.Equal("Unique catalogue text", snapshot.Context.ProductCatalogueDescription);
         Assert.Equal("Producer label", Assert.Single(snapshot.Context.Producers).Name); Assert.Equal("Plot label", Assert.Single(snapshot.Context.Plots).Name);
         Assert.True(Assert.Single(snapshot.Context.PinnedRevisions).SupersededAtReviewTime);
-        Assert.Equal("provena-pilot-completeness", snapshot.Completeness.PolicyId); Assert.Equal("1", snapshot.Completeness.PolicyVersion); Assert.NotEmpty(snapshot.Completeness.Items);
+        Assert.Equal("provena-pilot-completeness", snapshot.Completeness.PolicyId); Assert.Equal(CompletenessPolicy.Version, snapshot.Completeness.PolicyVersion); Assert.NotEmpty(snapshot.Completeness.Items);
         Assert.DoesNotContain("latestReview", json, StringComparison.OrdinalIgnoreCase); Assert.DoesNotContain("reviewFreshness", json, StringComparison.OrdinalIgnoreCase); Assert.DoesNotContain("organizationId", json, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("\"geometrySha256\"", factsText); Assert.Contains("\"regulatoryScope\":\"InScope\"", factsText); Assert.Contains("\"status\":\"Satisfied\"", root.GetProperty("completeness").GetRawText());
     }

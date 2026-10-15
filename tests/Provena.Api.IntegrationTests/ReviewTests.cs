@@ -12,6 +12,7 @@ using Provena.Api.Auth;
 using Provena.Api.Contracts;
 using Provena.Api.Data;
 using Provena.Api.Domain;
+using Provena.Api.Services;
 using Xunit;
 using static Provena.Api.IntegrationTests.CompletenessReadModelTests;
 namespace Provena.Api.IntegrationTests;
@@ -154,14 +155,14 @@ public sealed class ReviewTests(ApiFactory factory)
         Assert.EndsWith($"/api/eudr-cases/{w.CaseId}/reviews/{reviewId}", response.Headers.Location?.ToString());
         Assert.Equal(HttpStatusCode.OK, (await o.Client.GetAsync(response.Headers.Location)).StatusCode); // the Location resolves
         Assert.Equal(1, review.GetProperty("revisionNumber").GetInt32()); Assert.Equal("AcceptedAsCompleteUnderPolicy", review.GetProperty("decision").GetString()); Assert.Equal(o.UserId, review.GetProperty("reviewerUserId").GetGuid());
-        Assert.Equal(Fingerprint(before), review.GetProperty("fingerprint").GetString()); Assert.Equal(1, review.GetProperty("fingerprintVersion").GetInt32()); Assert.Equal("1", review.GetProperty("policyVersion").GetString());
+        Assert.Equal(Fingerprint(before), review.GetProperty("fingerprint").GetString()); Assert.Equal(1, review.GetProperty("fingerprintVersion").GetInt32()); Assert.Equal(CompletenessPolicy.Version, review.GetProperty("policyVersion").GetString());
         Assert.Equal(1, review.GetProperty("snapshotSchemaVersion").GetInt32());
         Assert.Equal(DossierFingerprintSections(), review.GetProperty("sectionHashes").EnumerateObject().Select(p => p.Name).Order().ToArray());
         AssertNoOrganizationId(review);
 
         await using var scope = factory.Services.CreateAsyncScope(); await using var db = TenantDb(scope, o.Org);
         var revision = await db.CaseRevisions.AsNoTracking().SingleAsync(x => x.EudrCaseId == w.CaseId); var record = await db.ReviewRecords.AsNoTracking().SingleAsync(x => x.EudrCaseId == w.CaseId);
-        Assert.Equal(1, revision.Number); Assert.Equal(revision.Id, record.CaseRevisionId); Assert.Equal(reviewId, record.Id); Assert.Equal(o.UserId, record.ReviewerUserId); Assert.Equal("1", record.PolicyVersion); Assert.Equal(Fingerprint(before), revision.Fingerprint);
+        Assert.Equal(1, revision.Number); Assert.Equal(revision.Id, record.CaseRevisionId); Assert.Equal(reviewId, record.Id); Assert.Equal(o.UserId, record.ReviewerUserId); Assert.Equal(CompletenessPolicy.Version, record.PolicyVersion); Assert.Equal(Fingerprint(before), revision.Fingerprint);
         var lot = await db.CaseLots.AsNoTracking().Current().SingleAsync(); var application = await db.CaseApplicabilities.AsNoTracking().Current().SingleAsync();
         Assert.Equal(lot.Id, revision.CaseLotId); Assert.Equal(lot.CaseDossierId, revision.CaseDossierId); Assert.Equal(application.Id, revision.CaseApplicabilityId);
         Assert.Equal(before.GetProperty("applicability").GetProperty("currentVersionId").GetGuid(), revision.CaseApplicabilityId);
@@ -179,7 +180,7 @@ public sealed class ReviewTests(ApiFactory factory)
         var after = await Completeness(o.Client, w.CaseId); var latest = after.GetProperty("latestReview");
         Assert.Equal("Current", after.GetProperty("reviewFreshness").GetString()); Assert.Equal(reviewId, latest.GetProperty("reviewId").GetGuid()); Assert.Equal(revision.Id, latest.GetProperty("caseRevisionId").GetGuid());
         Assert.Equal("AcceptedAsCompleteUnderPolicy", latest.GetProperty("decision").GetString()); Assert.False(latest.GetProperty("policyChanged").GetBoolean()); Assert.Empty(latest.GetProperty("changedAreas").EnumerateArray());
-        Assert.Equal("1", latest.GetProperty("policyVersion").GetString()); Assert.Equal(JsonValueKind.String, latest.GetProperty("reviewedAtUtc").ValueKind);
+        Assert.Equal(CompletenessPolicy.Version, latest.GetProperty("policyVersion").GetString()); Assert.Equal(JsonValueKind.String, latest.GetProperty("reviewedAtUtc").ValueKind);
         Assert.Equal(Fingerprint(before), Fingerprint(after)); // recording a review is not a fact change
         Assert.Equal("ReadyForOwnerReview", after.GetProperty("evidenceReadiness").GetString()); // there is still no "Reviewed" evidence state
     }
