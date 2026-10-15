@@ -2,6 +2,8 @@
 
 > **Update (Case Lifecycle v2):** `Completed` and `Archived` are no longer statuses and the 409 text for a non-editable case changed; "Completed/Archived" below now means a Closed or archived case, and `Complete` is replaced by an Owner-backed close. See [the lifecycle handoff](2026-10-case-lifecycle-v2.md).
 
+> **Update (Quantity Reconciliation v1):** the completeness policy is now version `"2"`, `GET .../completeness` has a new `quantityReconciliation` member and two new Quantity item codes, and `LOT_RECONCILED` can be `Invalid`. The `"version": "1"` example below is historical. See [quantity reconciliation](2026-10-quantity-reconciliation.md).
+
 Status: **complete Slice 5 backend contract.** It covers the working-fact APIs (commit 1), the read-only completeness API (commit 2) and the Owner-only immutable reviews, review freshness and the reviewed export (commit 3). Risk, mitigation, release, DDS and EU Information System are out of scope.
 
 ## 1. Summary

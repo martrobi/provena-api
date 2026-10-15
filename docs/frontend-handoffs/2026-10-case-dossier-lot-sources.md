@@ -2,6 +2,8 @@
 
 > **Update (Case Lifecycle v2):** `Completed` and `Archived` are no longer statuses and the 409 text for a non-editable case changed; "Completed/Archived" below now means a Closed or archived case, and `Complete` is replaced by an Owner-backed close. See [the lifecycle handoff](2026-10-case-lifecycle-v2.md).
 
+> **Update (Quantity Reconciliation v1):** `reconciliation.status` on the dossier DTOs still compares the producer contributions with the lot only. The lot is now also compared with the shipment and the supplier-confirmed quantity by the completeness `quantityReconciliation`; `shipmentQuantity`/`shipmentUnit` remain display fields. See [quantity reconciliation](2026-10-quantity-reconciliation.md).
+
 ## 1. Summary
 
 Three new internal endpoints let an operator record, per EUDR case, the facts about the case's **one physical lot**: the lot header (a business/batch reference, quantity, unit), the **producers** that contributed material with their quantities, and for each contribution the **production plots** it came from, each pinned to an **exact plot revision** with an optional **production period**. The lot is saved as one complete document (`PUT`); every material change creates a new immutable version, and earlier versions stay readable.

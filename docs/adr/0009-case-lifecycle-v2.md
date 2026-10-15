@@ -31,6 +31,7 @@ Two independent dimensions.
 - `ExternalDdsCompleted` requires an external DDS reference (trimmed, 1-200 characters), stored on the immutable closure and not verified. The other outcomes reject a reference.
 - Closing revokes active supplier requests. It does not change any requirement, review or fact.
 - A stale review cannot close. A new review is the only way to make a changed dossier closable.
+- *Amended by [ADR 0010](0010-quantity-reconciliation-v1.md):* closing as `ExternalDdsCompleted` additionally requires the current quantity reconciliation to be `Matched`, also for a Current review made under an older policy version (`409` with `errors.reason = "QuantityNotReconciled"`). The other outcomes have no quantity gate and a successful close is still 201.
 
 **Reopening** (`POST .../reopen`, Owner-only) names the current closure (`expectedClosureId`) and requires a non-blank reason. It writes a `CaseReopening`, re-derives the open workflow status, and changes nothing else: closures, reviews, exports, DDS references and audit history are preserved. Reopening does not restore revoked supplier links. After a reopen the old review cannot close again (it already backs a closure); a new review is required even if no fact changed.
 
