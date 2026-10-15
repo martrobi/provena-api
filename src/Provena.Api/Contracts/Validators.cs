@@ -251,3 +251,44 @@ public sealed class CreateExternalDdsRecordValidator : AbstractValidator<CreateE
         RuleFor(x => x.ReplacementReason).MaximumLength(4000);
     }
 }
+
+// Post-completion Concern & Corrective Action v1. Run on the trimmed input (instants already normalized to UTC). Free text is required and non-blank; values are never echoed in messages.
+// The future-time rules need the clock, so ConcernService applies them with the same 400 shape.
+public sealed class CreateConcernValidator : AbstractValidator<CreateConcernInput>
+{
+    public CreateConcernValidator()
+    {
+        RuleFor(x => x.Category).NotNull().IsInEnum();
+        RuleFor(x => x.Summary).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Details).NotEmpty().MaximumLength(4000);
+        RuleFor(x => x.RaisedAtUtc).NotNull().WithMessage("raisedAtUtc is the time the concern was raised.");
+    }
+}
+public sealed class RecordConcernActionValidator : AbstractValidator<RecordConcernActionInput>
+{
+    public RecordConcernActionValidator()
+    {
+        RuleFor(x => x.Description).NotEmpty().MaximumLength(4000);
+        RuleFor(x => x.PerformedAtUtc).NotNull().WithMessage("performedAtUtc is the time the action was performed.");
+        RuleFor(x => x.EvidenceDocumentId).NotEqual(Guid.Empty);
+    }
+}
+public sealed class RecordConcernNotificationValidator : AbstractValidator<RecordConcernNotificationInput>
+{
+    public RecordConcernNotificationValidator()
+    {
+        RuleFor(x => x.RecipientId).NotNull().NotEqual(Guid.Empty).WithMessage("recipientId is the id of a recipient of this case.");
+        RuleFor(x => x.Channel).NotNull().IsInEnum();
+        RuleFor(x => x.NotifiedAtUtc).NotNull().WithMessage("notifiedAtUtc is the time the recipient was notified.");
+        RuleFor(x => x.Note).MaximumLength(1000);
+        RuleFor(x => x.EvidenceDocumentId).NotEqual(Guid.Empty);
+    }
+}
+public sealed class ResolveConcernValidator : AbstractValidator<ResolveConcernInput>
+{
+    public ResolveConcernValidator()
+    {
+        RuleFor(x => x.Outcome).NotNull().IsInEnum();
+        RuleFor(x => x.Rationale).NotEmpty().MaximumLength(4000);
+    }
+}

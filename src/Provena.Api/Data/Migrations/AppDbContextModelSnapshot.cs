@@ -520,6 +520,59 @@ namespace Provena.Api.Data.Migrations
                     b.ToTable("CaseClosures");
                 });
 
+            modelBuilder.Entity("Provena.Api.Domain.CaseConcern", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Category")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Details")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<Guid>("EudrCaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("RaisedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RecordedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("OrganizationId", "Id");
+
+                    b.HasIndex("EudrCaseId", "Number")
+                        .IsUnique();
+
+                    b.ToTable("CaseConcerns", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CaseConcerns_NonblankText", "btrim(\"Summary\") <> '' AND btrim(\"Details\") <> ''");
+                        });
+                });
+
             modelBuilder.Entity("Provena.Api.Domain.CaseDocument", b =>
                 {
                     b.Property<Guid>("Id")
@@ -875,8 +928,6 @@ namespace Provena.Api.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasAlternateKey("OrganizationId", "Id");
-
                     b.HasIndex("OrganizationId", "CaseRecipientStatementId");
 
                     b.ToTable("CaseRecipients");
@@ -1148,6 +1199,165 @@ namespace Provena.Api.Data.Migrations
                     b.HasIndex("OrganizationId", "EudrCaseId", "CaseRevisionId");
 
                     b.ToTable("CaseRevisionEvidenceLinks");
+                });
+
+            modelBuilder.Entity("Provena.Api.Domain.ConcernAction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConcernId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<Guid>("EudrCaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("EvidenceDocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("PerformedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RecordedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("OrganizationId", "Id");
+
+                    b.HasIndex("ConcernId");
+
+                    b.HasIndex("OrganizationId", "EudrCaseId", "ConcernId");
+
+                    b.HasIndex("OrganizationId", "EudrCaseId", "EvidenceDocumentId");
+
+                    b.ToTable("ConcernActions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ConcernActions_NonblankDescription", "btrim(\"Description\") <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("Provena.Api.Domain.ConcernNotification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CaseRecipientId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Channel")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ConcernId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EudrCaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("EvidenceDocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTimeOffset>("NotifiedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RecordedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("OrganizationId", "Id");
+
+                    b.HasIndex("ConcernId");
+
+                    b.HasIndex("OrganizationId", "CaseRecipientId");
+
+                    b.HasIndex("OrganizationId", "EudrCaseId", "ConcernId");
+
+                    b.HasIndex("OrganizationId", "EudrCaseId", "EvidenceDocumentId");
+
+                    b.ToTable("ConcernNotifications", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ConcernNotifications_NonblankNote", "\"Note\" IS NULL OR btrim(\"Note\") <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("Provena.Api.Domain.ConcernResolution", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConcernId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EudrCaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Outcome")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Rationale")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<DateTimeOffset>("ResolvedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ResolvedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("OrganizationId", "Id");
+
+                    b.HasIndex("ConcernId")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "EudrCaseId", "ConcernId");
+
+                    b.ToTable("ConcernResolutions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ConcernResolutions_NonblankRationale", "btrim(\"Rationale\") <> ''");
+                        });
                 });
 
             modelBuilder.Entity("Provena.Api.Domain.ContributionPlot", b =>
@@ -2218,6 +2428,22 @@ namespace Provena.Api.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Provena.Api.Domain.CaseConcern", b =>
+                {
+                    b.HasOne("Provena.Api.Domain.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.EudrCase", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Provena.Api.Domain.CaseDocument", b =>
                 {
                     b.HasOne("Provena.Api.Domain.Organization", null)
@@ -2487,6 +2713,94 @@ namespace Provena.Api.Data.Migrations
                     b.HasOne("Provena.Api.Domain.CaseRevision", null)
                         .WithMany()
                         .HasForeignKey("OrganizationId", "EudrCaseId", "CaseRevisionId")
+                        .HasPrincipalKey("OrganizationId", "EudrCaseId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Provena.Api.Domain.ConcernAction", b =>
+                {
+                    b.HasOne("Provena.Api.Domain.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.EudrCase", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.CaseConcern", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId", "ConcernId")
+                        .HasPrincipalKey("OrganizationId", "EudrCaseId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.CaseDocument", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId", "EvidenceDocumentId")
+                        .HasPrincipalKey("OrganizationId", "EudrCaseId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Provena.Api.Domain.ConcernNotification", b =>
+                {
+                    b.HasOne("Provena.Api.Domain.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.CaseRecipient", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "CaseRecipientId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.EudrCase", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.CaseConcern", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId", "ConcernId")
+                        .HasPrincipalKey("OrganizationId", "EudrCaseId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.CaseDocument", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId", "EvidenceDocumentId")
+                        .HasPrincipalKey("OrganizationId", "EudrCaseId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Provena.Api.Domain.ConcernResolution", b =>
+                {
+                    b.HasOne("Provena.Api.Domain.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.EudrCase", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.CaseConcern", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId", "ConcernId")
                         .HasPrincipalKey("OrganizationId", "EudrCaseId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();

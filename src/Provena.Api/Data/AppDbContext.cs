@@ -42,6 +42,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
     public DbSet<CaseReopening> CaseReopenings => Set<CaseReopening>();
     public DbSet<CaseArchival> CaseArchivals => Set<CaseArchival>();
     public DbSet<ExternalDdsRecord> ExternalDdsRecords => Set<ExternalDdsRecord>();
+    public DbSet<CaseConcern> CaseConcerns => Set<CaseConcern>();
+    public DbSet<ConcernAction> ConcernActions => Set<ConcernAction>();
+    public DbSet<ConcernNotification> ConcernNotifications => Set<ConcernNotification>();
+    public DbSet<ConcernResolution> ConcernResolutions => Set<ConcernResolution>();
     protected override void OnModelCreating(ModelBuilder b)
     {
         base.OnModelCreating(b);
@@ -63,6 +67,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         ConfigureTenant<CaseRecipientStatement>(b); ConfigureTenant<CaseRecipient>(b); ConfigureTenant<CaseEvidenceLink>(b);
         ConfigureTenant<CaseRevision>(b); ConfigureTenant<CaseRevisionDocument>(b); ConfigureTenant<CaseRevisionEvidenceLink>(b); ConfigureTenant<ReviewRecord>(b);
         ConfigureTenant<CaseClosure>(b); ConfigureTenant<CaseReopening>(b); ConfigureTenant<CaseArchival>(b); ConfigureTenant<ExternalDdsRecord>(b);
+        ConfigureTenant<CaseConcern>(b); ConfigureTenant<ConcernAction>(b); ConfigureTenant<ConcernNotification>(b); ConfigureTenant<ConcernResolution>(b);
         b.Entity<Supplier>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Product>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Shipment>().HasIndex(x => new { x.OrganizationId, x.ReferenceNumber }).IsUnique();
@@ -258,6 +263,29 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
             t.HasCheckConstraint("CK_ExternalDdsRecords_NonblankNumbers", "btrim(\"ReferenceNumber\") <> '' AND btrim(\"VerificationNumber\") <> ''");
             t.HasCheckConstraint("CK_ExternalDdsRecords_ReplacementPair", "(\"SupersedesExternalDdsRecordId\" IS NULL AND \"ReplacementReason\" IS NULL) OR (\"SupersedesExternalDdsRecordId\" IS NOT NULL AND \"ReplacementReason\" IS NOT NULL AND btrim(\"ReplacementReason\") <> '')");
         });
+        // Post-completion Concern & Corrective Action v1: fully immutable retained history. Every child proves in the database that its concern (and optional evidence document) belongs to its
+        // own organization and case; the recipient is the immutable CaseRecipient row (that it belongs to this case is a service rule). One resolution per concern; concern numbers are unique per case.
+        CaseForeignKey<CaseConcern>(b); CaseForeignKey<ConcernAction>(b); CaseForeignKey<ConcernNotification>(b); CaseForeignKey<ConcernResolution>(b);
+        b.Entity<CaseConcern>().HasAlternateKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id });
+        b.Entity<CaseConcern>().HasIndex(x => new { x.EudrCaseId, x.Number }).IsUnique();
+        b.Entity<CaseConcern>().Property(x => x.Summary).HasMaxLength(200);
+        b.Entity<CaseConcern>().Property(x => x.Details).HasMaxLength(4000);
+        b.Entity<CaseConcern>().ToTable("CaseConcerns", t => t.HasCheckConstraint("CK_CaseConcerns_NonblankText", "btrim(\"Summary\") <> '' AND btrim(\"Details\") <> ''"));
+        b.Entity<ConcernAction>().HasOne<CaseConcern>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.ConcernId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<ConcernAction>().HasOne<CaseDocument>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.EvidenceDocumentId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
+        b.Entity<ConcernAction>().HasIndex(x => x.ConcernId);
+        b.Entity<ConcernAction>().Property(x => x.Description).HasMaxLength(4000);
+        b.Entity<ConcernAction>().ToTable("ConcernActions", t => t.HasCheckConstraint("CK_ConcernActions_NonblankDescription", "btrim(\"Description\") <> ''"));
+        b.Entity<ConcernNotification>().HasOne<CaseConcern>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.ConcernId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<ConcernNotification>().HasOne<CaseRecipient>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.CaseRecipientId }).HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<ConcernNotification>().HasOne<CaseDocument>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.EvidenceDocumentId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
+        b.Entity<ConcernNotification>().HasIndex(x => x.ConcernId);
+        b.Entity<ConcernNotification>().Property(x => x.Note).HasMaxLength(1000);
+        b.Entity<ConcernNotification>().ToTable("ConcernNotifications", t => t.HasCheckConstraint("CK_ConcernNotifications_NonblankNote", "\"Note\" IS NULL OR btrim(\"Note\") <> ''"));
+        b.Entity<ConcernResolution>().HasOne<CaseConcern>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.ConcernId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<ConcernResolution>().HasIndex(x => x.ConcernId).IsUnique(); // One resolution per concern.
+        b.Entity<ConcernResolution>().Property(x => x.Rationale).HasMaxLength(4000);
+        b.Entity<ConcernResolution>().ToTable("ConcernResolutions", t => t.HasCheckConstraint("CK_ConcernResolutions_NonblankRationale", "btrim(\"Rationale\") <> ''"));
         foreach (var type in b.Model.GetEntityTypes())
         foreach (var property in type.GetProperties().Where(p => p.ClrType == typeof(string) && p.GetMaxLength() == null && p.GetColumnType() != "jsonb"))
             property.SetMaxLength(4000);
@@ -337,6 +365,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
     {
         if (entry.State is EntityState.Modified or EntityState.Deleted) throw new InvalidOperationException("Case lifecycle history is immutable; record a new closure or reopening.");
     }
+    // Concerns, corrective actions, notifications and resolutions are fully immutable and never deleted: a new fact is a new row (or a new concern). Application-level only, like
+    // the guards above: other save overloads, bulk writes and raw SQL bypass it (the unique indexes, CHECKs and Restrict foreign keys are the database backstop).
+    private static void EnforceConcernHistoryImmutable(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Entity> entry)
+    {
+        if (entry.State is EntityState.Modified or EntityState.Deleted) throw new InvalidOperationException("Concern history is immutable; record a new concern fact.");
+    }
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         foreach (var entry in ChangeTracker.Entries<Entity>())
@@ -345,6 +379,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
                 throw new InvalidOperationException("Audit events are append-only.");
             if (entry.Entity is CaseDocument or GeoSubmission or SupplierSubmission or PlotRevision or CaseLot or CaseMasterDataVersion or CaseApplicability or CaseRecipientStatement or CaseEvidenceLink or CaseArchival or ExternalDdsRecord) EnforceRetainedEvidence(entry);
             if (entry.Entity is CaseClosure or CaseReopening) EnforceLifecycleHistoryImmutable(entry);
+            if (entry.Entity is CaseConcern or ConcernAction or ConcernNotification or ConcernResolution) EnforceConcernHistoryImmutable(entry);
             if (entry.Entity is CaseRecipient or OperatorProfile) EnforceCompletenessFacts(entry);
             if (entry.Entity is CaseRevision or CaseRevisionDocument or CaseRevisionEvidenceLink or ReviewRecord) EnforceReviewHistoryImmutable(entry);
             if (entry.Entity is Producer or ProductionPlot) EnforceProvenanceIdentity(entry);

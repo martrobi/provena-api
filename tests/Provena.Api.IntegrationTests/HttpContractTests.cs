@@ -368,7 +368,7 @@ public sealed class HttpContractTests(ApiFactory factory)
             "/public/supplier-requests/{token}/geolocation", "/public/supplier-requests/{token}/complete",
         })
             Assert.Contains(path, paths);
-        Assert.Equal(60, paths.Count);
+        Assert.Equal(65, paths.Count);
         // The review POST reads its body by hand (so the Owner check precedes parsing); its request body must still be advertised.
         var reviewPost = document.GetProperty("paths").GetProperty("/api/eudr-cases/{caseId}/reviews").GetProperty("post");
         Assert.True(reviewPost.GetProperty("requestBody").GetProperty("content").TryGetProperty("application/json", out var reviewBody));

@@ -509,7 +509,7 @@ INSERT INTO "CaseRecipients" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId
     }
     private static async Task ClearCompleteness(AppDbContext db)
     {
-        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ExternalDdsRecords", "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "CaseRecipients", "CaseRecipientStatements", "CaseEvidenceLinks", "CaseApplicabilities", "CaseMasterDataVersions", "OperatorProfiles" """);
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ConcernResolutions", "ConcernNotifications", "ConcernActions", "CaseConcerns", "ExternalDdsRecords", "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "CaseRecipients", "CaseRecipientStatements", "CaseEvidenceLinks", "CaseApplicabilities", "CaseMasterDataVersions", "OperatorProfiles" """);
         await db.Database.ExecuteSqlRawAsync("""UPDATE "Suppliers" SET "PostalAddress" = NULL""");
     }
 
@@ -992,4 +992,97 @@ INSERT INTO "Products" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","Nam
         Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name = 'ExternalDdsRecords'").ToListAsync());
         Assert.Equal(1, await Count(db, "ReviewRecords"));
     }
+
+#pragma warning disable EF1002 // Test-only SQL built from constants, test parameters and locally generated GUIDs; no external input.
+    // ---- Post-completion Concern & Corrective Action v1 --------------------------------------------------------------------------------------
+    private const string ConcernMigration = "20261015224634_PostCompletionConcerns";
+    private static readonly string[] ConcernTables = ["CaseConcerns", "ConcernActions", "ConcernNotifications", "ConcernResolutions"];
+
+    [Fact]
+    public async Task Clean_database_has_the_concern_tables_with_unique_keys_nonblank_checks_and_restrict_tenant_aware_foreign_keys()
+    {
+        await using var db = NewContext();
+        Assert.False(db.Database.HasPendingModelChanges(), "The generated snapshot must match the DbContext.");
+        await db.Database.MigrateAsync();
+        Assert.Contains(ConcernMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+        async Task<string> Index(string name) => await db.Database.SqlQueryRaw<string>("SELECT indexdef AS \"Value\" FROM pg_indexes WHERE indexname = {0}", name).SingleAsync();
+        Assert.Contains("UNIQUE", await Index("IX_CaseConcerns_EudrCaseId_Number")); // per-case concern number
+        Assert.Contains("UNIQUE", await Index("IX_ConcernResolutions_ConcernId")); // one resolution per concern
+        async Task<List<string>> Constraints(string table) => await db.Database.SqlQueryRaw<string>($"SELECT contype::text || ' ' || conname || ' ' || pg_get_constraintdef(oid) AS \"Value\" FROM pg_constraint WHERE conrelid = '\"{table}\"'::regclass").ToListAsync();
+        foreach (var (table, foreignKeys, checks) in new[] { ("CaseConcerns", 2, 1), ("ConcernActions", 4, 1), ("ConcernNotifications", 5, 1), ("ConcernResolutions", 3, 1) })
+        {
+            var constraints = await Constraints(table);
+            var fks = constraints.Where(x => x.StartsWith("f ")).ToList();
+            Assert.Equal(foreignKeys, fks.Count); Assert.All(fks, x => Assert.Contains("ON DELETE RESTRICT", x));
+            Assert.Equal(checks, constraints.Count(x => x.StartsWith("c ")));
+        }
+        var notifications = await Constraints("ConcernNotifications");
+        Assert.Contains(notifications, x => x.Contains("REFERENCES \"CaseRecipients\"(\"OrganizationId\", \"Id\")")); // the immutable recipient row
+        Assert.Contains(notifications, x => x.Contains("REFERENCES \"Documents\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")")); // evidence of the row's own case
+        Assert.Contains(notifications, x => x.Contains("REFERENCES \"CaseConcerns\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")")); // concern of the row's own case
+    }
+
+    [Fact]
+    public async Task The_concern_migration_is_purely_additive_over_existing_data_and_its_down_drops_only_its_tables()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        await SeedEvidenceAtInitialSchema(db);
+        await db.GetService<IMigrator>().MigrateAsync(ExternalDdsMigration);
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name = 'CaseConcerns'").ToListAsync());
+
+        await db.Database.MigrateAsync();
+        foreach (var table in ConcernTables) Assert.Equal(0, await Count(db, table));
+        Assert.Equal(1, await Count(db, "Cases")); Assert.Equal(1, await Count(db, "Documents"));
+
+        await db.GetService<IMigrator>().MigrateAsync(ExternalDdsMigration);
+        Assert.DoesNotContain(ConcernMigration, await db.Database.GetAppliedMigrationsAsync()); Assert.Contains(ExternalDdsMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('CaseConcerns','ConcernActions','ConcernNotifications','ConcernResolutions')").ToListAsync());
+        Assert.Equal(1, await Count(db, "Cases")); Assert.Equal(1, await Count(db, "Documents"));
+    }
+
+    // Every scenario holds a concern (the parent of the other three); the named table is the one that additionally holds a row, and any such row blocks the rollback.
+    [Theory]
+    [InlineData("CaseConcerns")]
+    [InlineData("ConcernActions")]
+    [InlineData("ConcernNotifications")]
+    [InlineData("ConcernResolutions")]
+    public async Task Concern_down_is_refused_while_any_concern_row_exists_and_succeeds_when_empty(string populated)
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.GetService<IMigrator>().MigrateAsync(ConcernMigration);
+        var org = seed.OrganizationId; var caseId = seed.CaseId; var concern = Guid.NewGuid(); var statement = Guid.NewGuid(); var recipient = Guid.NewGuid();
+        await db.Database.ExecuteSqlRawAsync($"""
+INSERT INTO "CaseConcerns" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","Number","Category","Summary","Details","RaisedAtUtc","RecordedByUserId") VALUES ('{concern}', now(), now(), '{org}', '{caseId}', 1, 4, 'S', 'D', now(), '{Guid.NewGuid()}');
+INSERT INTO "CaseRecipientStatements" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","Number","Resolution") VALUES ('{statement}', now(), now(), '{org}', '{caseId}', 1, 0);
+INSERT INTO "CaseRecipients" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","CaseRecipientStatementId","Name","PostalAddress","Email") VALUES ('{recipient}', now(), now(), '{org}', '{statement}', 'R', 'A', 'r@example.test');
+""");
+        switch (populated)
+        {
+            case "ConcernActions":
+                await db.Database.ExecuteSqlRawAsync($"""INSERT INTO "ConcernActions" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","ConcernId","Description","PerformedAtUtc","RecordedByUserId") VALUES ('{Guid.NewGuid()}', now(), now(), '{org}', '{caseId}', '{concern}', 'd', now(), '{Guid.NewGuid()}')"""); break;
+            case "ConcernNotifications":
+                await db.Database.ExecuteSqlRawAsync($"""INSERT INTO "ConcernNotifications" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","ConcernId","CaseRecipientId","Channel","NotifiedAtUtc","RecordedByUserId") VALUES ('{Guid.NewGuid()}', now(), now(), '{org}', '{caseId}', '{concern}', '{recipient}', 0, now(), '{Guid.NewGuid()}')"""); break;
+            case "ConcernResolutions":
+                await db.Database.ExecuteSqlRawAsync($"""INSERT INTO "ConcernResolutions" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","ConcernId","Outcome","Rationale","ResolvedByUserId","ResolvedAtUtc") VALUES ('{Guid.NewGuid()}', now(), now(), '{org}', '{caseId}', '{concern}', 0, 'r', '{Guid.NewGuid()}', now())"""); break;
+        }
+
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => db.GetService<IMigrator>().MigrateAsync(ExternalDdsMigration));
+        Assert.Contains("Concern records exist; rollback would destroy history", failure.ToString());
+        Assert.Contains(ConcernMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Equal(1, await Count(db, "CaseConcerns"));
+        if (populated != "CaseConcerns") Assert.Equal(1, await Count(db, populated));
+        Assert.Equal("S", await db.Database.SqlQueryRaw<string>("""SELECT "Summary" AS "Value" FROM "CaseConcerns" """).SingleAsync());
+
+        // With no concern record the same rollback succeeds.
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ConcernResolutions", "ConcernNotifications", "ConcernActions", "CaseConcerns" """);
+        await db.GetService<IMigrator>().MigrateAsync(ExternalDdsMigration);
+        Assert.DoesNotContain(ConcernMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('CaseConcerns','ConcernActions','ConcernNotifications','ConcernResolutions')").ToListAsync());
+        Assert.Equal(1, await Count(db, "CaseRecipients"));
+    }
+#pragma warning restore EF1002
 }
