@@ -963,4 +963,33 @@ INSERT INTO "Products" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","Nam
         Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name = 'ExternalDdsRecords'").ToListAsync());
         Assert.Equal(1, await Count(db, "ReviewRecords")); Assert.Equal(1, await Count(db, "Cases"));
     }
+
+    [Fact]
+    public async Task External_dds_down_is_refused_while_a_record_exists_and_leaves_the_table_and_row_intact_and_succeeds_when_empty()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.GetService<IMigrator>().MigrateAsync(LifecycleMigration);
+        await InsertReviewRow(db, seed, "ReviewRecords");
+        await db.GetService<IMigrator>().MigrateAsync(ExternalDdsMigration);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "ExternalDdsRecords" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","Number","ReviewId","ReferenceNumber","VerificationNumber","SubmittedAtUtc","RecordedByUserId")
+            SELECT {Guid.NewGuid()}, now(), now(), r."OrganizationId", r."EudrCaseId", 1, r."Id", 'REF-1', 'VERIF-FIXTURE', now(), {Guid.NewGuid()} FROM "ReviewRecords" r LIMIT 1
+            """);
+        Assert.Equal(1, await Count(db, "ExternalDdsRecords"));
+
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => db.GetService<IMigrator>().MigrateAsync(LifecycleMigration));
+        Assert.Contains("External DDS records exist; rollback would destroy history", failure.ToString());
+        Assert.Contains(ExternalDdsMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Equal(1, await Count(db, "ExternalDdsRecords"));
+        Assert.Equal("REF-1", await db.Database.SqlQueryRaw<string>("""SELECT "ReferenceNumber" AS "Value" FROM "ExternalDdsRecords" """).SingleAsync());
+
+        // With no record the same rollback succeeds.
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ExternalDdsRecords" """);
+        await db.GetService<IMigrator>().MigrateAsync(LifecycleMigration);
+        Assert.DoesNotContain(ExternalDdsMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name = 'ExternalDdsRecords'").ToListAsync());
+        Assert.Equal(1, await Count(db, "ReviewRecords"));
+    }
 }

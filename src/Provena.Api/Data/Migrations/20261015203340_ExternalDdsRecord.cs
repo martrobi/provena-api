@@ -114,6 +114,16 @@ namespace Provena.Api.Data.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // Refuses once External DDS records exist (like the earlier retention migrations): the table is retained history.
+            migrationBuilder.Sql("""
+                DO $$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM "ExternalDdsRecords") THEN
+                        RAISE EXCEPTION 'External DDS records exist; rollback would destroy history';
+                    END IF;
+                END $$;
+                """);
+
             migrationBuilder.DropTable(
                 name: "ExternalDdsRecords");
         }
