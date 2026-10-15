@@ -410,7 +410,7 @@ INSERT INTO "CaseDossiers" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId",
         var seed = await SeedEvidenceAtInitialSchema(db);
         await db.Database.MigrateAsync();
         await InsertDossierGraph(db, seed);
-        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "ContributionPlots", "LotContributions", "CaseLots", "CaseDossiers" """);
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ExternalDdsRecords", "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "ContributionPlots", "LotContributions", "CaseLots", "CaseDossiers" """);
 
         await db.GetService<IMigrator>().MigrateAsync(ProvenanceMigration);
 
@@ -509,7 +509,7 @@ INSERT INTO "CaseRecipients" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId
     }
     private static async Task ClearCompleteness(AppDbContext db)
     {
-        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "CaseRecipients", "CaseRecipientStatements", "CaseEvidenceLinks", "CaseApplicabilities", "CaseMasterDataVersions", "OperatorProfiles" """);
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ExternalDdsRecords", "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "CaseRecipients", "CaseRecipientStatements", "CaseEvidenceLinks", "CaseApplicabilities", "CaseMasterDataVersions", "OperatorProfiles" """);
         await db.Database.ExecuteSqlRawAsync("""UPDATE "Suppliers" SET "PostalAddress" = NULL""");
     }
 
@@ -688,7 +688,7 @@ INSERT INTO "CaseRevisions" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId"
         await InsertDossierGraph(db, seed);
         await InsertCompletenessRow(db, seed, "CaseApplicabilities"); await InsertCompletenessRow(db, seed, "CaseMasterDataVersions");
         await InsertReviewRow(db, seed, "ReviewRecords");
-        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions" """);
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ExternalDdsRecords", "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions" """);
 
         await db.GetService<IMigrator>().MigrateAsync(CompletenessMigration);
 
@@ -917,5 +917,50 @@ INSERT INTO "Products" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","Nam
 
         Assert.Equal([InitialMigration], (await db.Database.GetAppliedMigrationsAsync()).ToArray());
         Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM "Geolocations" """).SingleAsync());
+    }
+
+    // ---- External DDS Record v1 (ExternalDdsRecord) -----------------------------------------------------------------------------------------
+    private const string ExternalDdsMigration = "20261015203340_ExternalDdsRecord";
+
+    [Fact]
+    public async Task Clean_database_has_the_external_dds_table_with_partial_unique_indexes_check_constraints_and_restrict_tenant_aware_foreign_keys()
+    {
+        await using var db = NewContext();
+        Assert.False(db.Database.HasPendingModelChanges(), "The generated snapshot must match the DbContext.");
+        await db.Database.MigrateAsync();
+        Assert.Contains(ExternalDdsMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+        async Task<string> Index(string name) => await db.Database.SqlQueryRaw<string>("SELECT indexdef AS \"Value\" FROM pg_indexes WHERE indexname = {0}", name).SingleAsync();
+        var current = await Index("IX_ExternalDdsRecords_EudrCaseId"); Assert.Contains("UNIQUE", current); Assert.Contains("\"SupersededAtUtc\" IS NULL", current); // at most one current record per case
+        Assert.Contains("UNIQUE", await Index("IX_ExternalDdsRecords_EudrCaseId_Number"));
+        var supersedes = await Index("IX_ExternalDdsRecords_SupersedesExternalDdsRecordId"); Assert.Contains("UNIQUE", supersedes); Assert.Contains("IS NOT NULL", supersedes); // a record is superseded at most once
+        var constraints = await db.Database.SqlQueryRaw<string>("""
+            SELECT contype::text || ' ' || conname || ' ' || pg_get_constraintdef(oid) AS "Value" FROM pg_constraint WHERE conrelid = '"ExternalDdsRecords"'::regclass
+            """).ToListAsync();
+        var foreignKeys = constraints.Where(x => x.StartsWith("f ")).ToList();
+        Assert.Equal(5, foreignKeys.Count); Assert.All(foreignKeys, x => Assert.Contains("ON DELETE RESTRICT", x));
+        foreach (var target in new[] { "REFERENCES \"ReviewRecords\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")", "REFERENCES \"Documents\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")", "REFERENCES \"ExternalDdsRecords\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")", "REFERENCES \"Cases\"(\"OrganizationId\", \"Id\")" })
+            Assert.Contains(foreignKeys, x => x.Contains(target));
+        Assert.Equal(2, constraints.Count(x => x.StartsWith("c ")));
+        Assert.Equal(["ReferenceNumber:NO", "VerificationNumber:NO"], (await db.Database.SqlQueryRaw<string>("SELECT column_name || ':' || is_nullable AS \"Value\" FROM information_schema.columns WHERE table_name = 'ExternalDdsRecords' AND column_name IN ('ReferenceNumber', 'VerificationNumber')").ToListAsync()).Order().ToArray());
+    }
+
+    [Fact]
+    public async Task The_external_dds_migration_is_purely_additive_over_existing_lifecycle_data_and_its_down_drops_only_its_table()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.GetService<IMigrator>().MigrateAsync(LifecycleMigration);
+        await InsertReviewRow(db, seed, "ReviewRecords");
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name = 'ExternalDdsRecords'").ToListAsync());
+
+        await db.Database.MigrateAsync();
+        Assert.Equal(0, await Count(db, "ExternalDdsRecords")); Assert.Equal(1, await Count(db, "ReviewRecords")); Assert.Equal(1, await Count(db, "Cases"));
+
+        await db.GetService<IMigrator>().MigrateAsync(LifecycleMigration);
+        Assert.DoesNotContain(ExternalDdsMigration, await db.Database.GetAppliedMigrationsAsync()); Assert.Contains(LifecycleMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name = 'ExternalDdsRecords'").ToListAsync());
+        Assert.Equal(1, await Count(db, "ReviewRecords")); Assert.Equal(1, await Count(db, "Cases"));
     }
 }

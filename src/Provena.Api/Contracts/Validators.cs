@@ -235,3 +235,19 @@ public sealed class UnarchiveCaseValidator : AbstractValidator<UnarchiveCaseInpu
 {
     public UnarchiveCaseValidator() { RuleFor(x => x.Reason).NotEmpty().MaximumLength(4000); }
 }
+
+// External DDS Record v1. Runs on the trimmed input (SubmittedAtUtc is already normalized to UTC). The values are never echoed in messages. The future-time rule needs the clock and the
+// replacement-reason rule needs to know whether a record exists, so ExternalDdsService applies them with the same 400 shape.
+public sealed class CreateExternalDdsRecordValidator : AbstractValidator<CreateExternalDdsRecordInput>
+{
+    public CreateExternalDdsRecordValidator()
+    {
+        RuleFor(x => x.ReviewId).NotNull().NotEqual(Guid.Empty).WithMessage("reviewId is the id of the latest Owner review that was submitted externally.");
+        RuleFor(x => x.ReferenceNumber).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.VerificationNumber).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.SubmittedAtUtc).NotNull().WithMessage("submittedAtUtc is the time the declaration was submitted outside Provena.");
+        RuleFor(x => x.ExpectedLatestExternalDdsRecordId).NotEqual(Guid.Empty);
+        RuleFor(x => x.ReceiptDocumentId).NotEqual(Guid.Empty);
+        RuleFor(x => x.ReplacementReason).MaximumLength(4000);
+    }
+}

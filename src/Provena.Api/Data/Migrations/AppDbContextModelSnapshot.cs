@@ -1300,6 +1300,90 @@ namespace Provena.Api.Data.Migrations
                     b.ToTable("Requirements");
                 });
 
+            modelBuilder.Entity("Provena.Api.Domain.ExternalDdsRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EudrCaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ReceiptDocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RecordedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReferenceNumber")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ReplacementReason")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<Guid>("ReviewId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("SubmittedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("SupersededAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("SupersedesExternalDdsRecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VerificationNumber")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("OrganizationId", "Id");
+
+                    b.HasIndex("EudrCaseId")
+                        .IsUnique()
+                        .HasFilter("\"SupersededAtUtc\" IS NULL");
+
+                    b.HasIndex("ReviewId");
+
+                    b.HasIndex("SupersedesExternalDdsRecordId")
+                        .IsUnique()
+                        .HasFilter("\"SupersedesExternalDdsRecordId\" IS NOT NULL");
+
+                    b.HasIndex("EudrCaseId", "Number")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "EudrCaseId", "ReceiptDocumentId");
+
+                    b.HasIndex("OrganizationId", "EudrCaseId", "ReviewId");
+
+                    b.HasIndex("OrganizationId", "EudrCaseId", "SupersedesExternalDdsRecordId");
+
+                    b.ToTable("ExternalDdsRecords", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ExternalDdsRecords_NonblankNumbers", "btrim(\"ReferenceNumber\") <> '' AND btrim(\"VerificationNumber\") <> ''");
+
+                            t.HasCheckConstraint("CK_ExternalDdsRecords_ReplacementPair", "(\"SupersedesExternalDdsRecordId\" IS NULL AND \"ReplacementReason\" IS NULL) OR (\"SupersedesExternalDdsRecordId\" IS NOT NULL AND \"ReplacementReason\" IS NOT NULL AND btrim(\"ReplacementReason\") <> '')");
+                        });
+                });
+
             modelBuilder.Entity("Provena.Api.Domain.GeoSubmission", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2468,6 +2552,41 @@ namespace Provena.Api.Data.Migrations
                         .HasPrincipalKey("OrganizationId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Provena.Api.Domain.ExternalDdsRecord", b =>
+                {
+                    b.HasOne("Provena.Api.Domain.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.EudrCase", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.CaseDocument", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId", "ReceiptDocumentId")
+                        .HasPrincipalKey("OrganizationId", "EudrCaseId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Provena.Api.Domain.ReviewRecord", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId", "ReviewId")
+                        .HasPrincipalKey("OrganizationId", "EudrCaseId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.ExternalDdsRecord", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId", "SupersedesExternalDdsRecordId")
+                        .HasPrincipalKey("OrganizationId", "EudrCaseId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Provena.Api.Domain.GeoSubmission", b =>

@@ -14,4 +14,5 @@ public static class RetainedEvidence
     public static IQueryable<CaseRecipientStatement> Current(this IQueryable<CaseRecipientStatement> q) => q.Where(x => x.SupersededAtUtc == null);
     public static IQueryable<CaseEvidenceLink> Current(this IQueryable<CaseEvidenceLink> q) => q.Where(x => x.WithdrawnAtUtc == null);
     public static IQueryable<CaseArchival> Current(this IQueryable<CaseArchival> q) => q.Where(x => x.UnarchivedAtUtc == null);
+    public static IQueryable<ExternalDdsRecord> Current(this IQueryable<ExternalDdsRecord> q) => q.Where(x => x.SupersededAtUtc == null);
 }

@@ -362,13 +362,13 @@ public sealed class HttpContractTests(ApiFactory factory)
             "/api/eudr-cases/{caseId}/applicability", "/api/eudr-cases/{caseId}/applicability-history", "/api/eudr-cases/{caseId}/recipients", "/api/eudr-cases/{caseId}/recipients-history",
             "/api/eudr-cases/{caseId}/evidence-links", "/api/eudr-cases/{caseId}/evidence-links/{linkId}",
             "/api/eudr-cases/{caseId}/close", "/api/eudr-cases/{caseId}/reopen", "/api/eudr-cases/{caseId}/archive", "/api/eudr-cases/{caseId}/unarchive", "/api/eudr-cases/{caseId}/lifecycle",
-            "/api/eudr-cases/{caseId}/completeness",
+            "/api/eudr-cases/{caseId}/completeness", "/api/eudr-cases/{caseId}/external-dds", "/api/eudr-cases/{caseId}/external-dds-history",
             "/api/eudr-cases/{caseId}/reviews", "/api/eudr-cases/{caseId}/reviews/{reviewId}", "/api/eudr-cases/{caseId}/reviews/{reviewId}/export",
             "/api/import/shipments", "/public/supplier-requests/{token}", "/public/supplier-requests/{token}/details", "/public/supplier-requests/{token}/documents",
             "/public/supplier-requests/{token}/geolocation", "/public/supplier-requests/{token}/complete",
         })
             Assert.Contains(path, paths);
-        Assert.Equal(58, paths.Count);
+        Assert.Equal(60, paths.Count);
         // The review POST reads its body by hand (so the Owner check precedes parsing); its request body must still be advertised.
         var reviewPost = document.GetProperty("paths").GetProperty("/api/eudr-cases/{caseId}/reviews").GetProperty("post");
         Assert.True(reviewPost.GetProperty("requestBody").GetProperty("content").TryGetProperty("application/json", out var reviewBody));

@@ -35,9 +35,9 @@ public sealed class LifecycleDomainTests
     public void The_dds_reference_is_trimmed_and_blank_means_absent(string? input, string? expected) => Assert.Equal(expected, CaseClosurePolicy.NormalizeReference(input));
 
     [Fact]
-    public void Only_ExternalDdsCompleted_requires_a_dds_reference_and_the_other_outcomes_reject_one()
+    public void The_legacy_dds_reference_is_optional_for_ExternalDdsCompleted_and_the_other_outcomes_reject_one()
     {
-        Assert.NotNull(CaseClosurePolicy.ReferenceError(CaseClosureOutcome.ExternalDdsCompleted, null));
+        Assert.Null(CaseClosurePolicy.ReferenceError(CaseClosureOutcome.ExternalDdsCompleted, null));
         Assert.Null(CaseClosurePolicy.ReferenceError(CaseClosureOutcome.ExternalDdsCompleted, "DDS-1"));
         foreach (var outcome in new[] { CaseClosureOutcome.OutsideRegulatoryScope, CaseClosureOutcome.UnsupportedFlow })
         {

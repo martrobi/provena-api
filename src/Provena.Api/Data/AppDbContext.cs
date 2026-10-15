@@ -41,6 +41,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
     public DbSet<CaseClosure> CaseClosures => Set<CaseClosure>();
     public DbSet<CaseReopening> CaseReopenings => Set<CaseReopening>();
     public DbSet<CaseArchival> CaseArchivals => Set<CaseArchival>();
+    public DbSet<ExternalDdsRecord> ExternalDdsRecords => Set<ExternalDdsRecord>();
     protected override void OnModelCreating(ModelBuilder b)
     {
         base.OnModelCreating(b);
@@ -61,7 +62,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         ConfigureTenant<OperatorProfile>(b); ConfigureTenant<CaseMasterDataVersion>(b); ConfigureTenant<CaseApplicability>(b);
         ConfigureTenant<CaseRecipientStatement>(b); ConfigureTenant<CaseRecipient>(b); ConfigureTenant<CaseEvidenceLink>(b);
         ConfigureTenant<CaseRevision>(b); ConfigureTenant<CaseRevisionDocument>(b); ConfigureTenant<CaseRevisionEvidenceLink>(b); ConfigureTenant<ReviewRecord>(b);
-        ConfigureTenant<CaseClosure>(b); ConfigureTenant<CaseReopening>(b); ConfigureTenant<CaseArchival>(b);
+        ConfigureTenant<CaseClosure>(b); ConfigureTenant<CaseReopening>(b); ConfigureTenant<CaseArchival>(b); ConfigureTenant<ExternalDdsRecord>(b);
         b.Entity<Supplier>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Product>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Shipment>().HasIndex(x => new { x.OrganizationId, x.ReferenceNumber }).IsUnique();
@@ -238,6 +239,25 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         b.Entity<CaseArchival>().HasIndex(x => x.EudrCaseId).IsUnique().HasFilter("\"UnarchivedAtUtc\" IS NULL"); // At most one current archive period per case.
         b.Entity<CaseArchival>().Property(x => x.Reason).HasMaxLength(4000);
         b.Entity<CaseArchival>().Property(x => x.UnarchiveReason).HasMaxLength(4000);
+        // External DDS Record v1: append-only manual external-submission facts. Review, receipt document and superseded record are case-consistent composite Restrict FKs, so the
+        // database proves they belong to the record's own organization and case. Retired one way through SupersededAtUtc (retirement map).
+        CaseForeignKey<ExternalDdsRecord>(b);
+        b.Entity<ExternalDdsRecord>().HasAlternateKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id });
+        b.Entity<ExternalDdsRecord>().HasIndex(x => new { x.EudrCaseId, x.Number }).IsUnique();
+        b.Entity<ExternalDdsRecord>().HasIndex(x => x.EudrCaseId).IsUnique().HasFilter("\"SupersededAtUtc\" IS NULL"); // At most one current record per case.
+        b.Entity<ExternalDdsRecord>().HasIndex(x => x.SupersedesExternalDdsRecordId).IsUnique().HasFilter("\"SupersedesExternalDdsRecordId\" IS NOT NULL"); // A record is superseded by at most one.
+        b.Entity<ExternalDdsRecord>().HasIndex(x => x.ReviewId);
+        b.Entity<ExternalDdsRecord>().HasOne<ReviewRecord>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.ReviewId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<ExternalDdsRecord>().HasOne<CaseDocument>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.ReceiptDocumentId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
+        b.Entity<ExternalDdsRecord>().HasOne<ExternalDdsRecord>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.SupersedesExternalDdsRecordId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
+        b.Entity<ExternalDdsRecord>().Property(x => x.ReferenceNumber).HasMaxLength(200);
+        b.Entity<ExternalDdsRecord>().Property(x => x.VerificationNumber).HasMaxLength(200);
+        b.Entity<ExternalDdsRecord>().Property(x => x.ReplacementReason).HasMaxLength(4000);
+        b.Entity<ExternalDdsRecord>().ToTable("ExternalDdsRecords", t =>
+        {
+            t.HasCheckConstraint("CK_ExternalDdsRecords_NonblankNumbers", "btrim(\"ReferenceNumber\") <> '' AND btrim(\"VerificationNumber\") <> ''");
+            t.HasCheckConstraint("CK_ExternalDdsRecords_ReplacementPair", "(\"SupersedesExternalDdsRecordId\" IS NULL AND \"ReplacementReason\" IS NULL) OR (\"SupersedesExternalDdsRecordId\" IS NOT NULL AND \"ReplacementReason\" IS NOT NULL AND btrim(\"ReplacementReason\") <> '')");
+        });
         foreach (var type in b.Model.GetEntityTypes())
         foreach (var property in type.GetProperties().Where(p => p.ClrType == typeof(string) && p.GetMaxLength() == null && p.GetColumnType() != "jsonb"))
             property.SetMaxLength(4000);
@@ -268,6 +288,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         [typeof(CaseRecipientStatement)] = (nameof(CaseRecipientStatement.SupersededAtUtc), []),
         [typeof(CaseEvidenceLink)] = (nameof(CaseEvidenceLink.WithdrawnAtUtc), [nameof(CaseEvidenceLink.WithdrawnByUserId)]),
         [typeof(CaseArchival)] = (nameof(CaseArchival.UnarchivedAtUtc), [nameof(CaseArchival.UnarchivedByUserId), nameof(CaseArchival.UnarchiveReason)]),
+        [typeof(ExternalDdsRecord)] = (nameof(ExternalDdsRecord.SupersededAtUtc), []),
     };
     private static void EnforceRetainedEvidence(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Entity> entry)
     {
@@ -322,7 +343,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         {
             if (entry.Entity is AuditEvent && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Audit events are append-only.");
-            if (entry.Entity is CaseDocument or GeoSubmission or SupplierSubmission or PlotRevision or CaseLot or CaseMasterDataVersion or CaseApplicability or CaseRecipientStatement or CaseEvidenceLink or CaseArchival) EnforceRetainedEvidence(entry);
+            if (entry.Entity is CaseDocument or GeoSubmission or SupplierSubmission or PlotRevision or CaseLot or CaseMasterDataVersion or CaseApplicability or CaseRecipientStatement or CaseEvidenceLink or CaseArchival or ExternalDdsRecord) EnforceRetainedEvidence(entry);
             if (entry.Entity is CaseClosure or CaseReopening) EnforceLifecycleHistoryImmutable(entry);
             if (entry.Entity is CaseRecipient or OperatorProfile) EnforceCompletenessFacts(entry);
             if (entry.Entity is CaseRevision or CaseRevisionDocument or CaseRevisionEvidenceLink or ReviewRecord) EnforceReviewHistoryImmutable(entry);

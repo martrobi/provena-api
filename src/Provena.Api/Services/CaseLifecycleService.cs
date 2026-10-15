@@ -56,17 +56,22 @@ public sealed class CaseLifecycleService(AppDbContext db, TenantContext tenant, 
         if (CaseClosurePolicy.QuantityError(outcome, state.Evaluation.QuantityReconciliation) is { } quantityError)
             throw new ApiException(409, quantityError, new { reason = "QuantityNotReconciled", quantityReconciliation = state.Evaluation.QuantityReconciliation });
 
+        // External DDS Record v1: the structured current record (not the request's free text) is authoritative for ExternalDdsCompleted. Read under the same case lock.
+        var ddsRecord = outcome == CaseClosureOutcome.ExternalDdsCompleted ? await db.ExternalDdsRecords.AsNoTracking().Current().SingleOrDefaultAsync(x => x.EudrCaseId == caseId, ct) : null;
+        if (CaseClosurePolicy.ExternalDdsError(outcome, latest.Record.Id, ddsRecord, request.ExternalDdsReference) is { } ddsError)
+            throw new ApiException(409, ddsError.Message, new { reason = ddsError.Reason, externalDds = ddsRecord == null ? null : ExternalDdsService.ToSummary(ddsRecord) });
+
         var now = DateTimeOffset.UtcNow; var previous = c.Status;
         var number = (await db.CaseClosures.Where(x => x.EudrCaseId == caseId).MaxAsync(x => (int?)x.Number, ct) ?? 0) + 1;
         var closure = new CaseClosure
         {
             OrganizationId = tenant.OrganizationId, EudrCaseId = caseId, Number = number, Outcome = outcome, ReviewRecordId = latest.Record.Id,
-            ExternalDdsReference = request.ExternalDdsReference, ClosedByUserId = tenant.UserId!.Value, ClosedAtUtc = now,
+            ExternalDdsReference = ddsRecord?.ReferenceNumber, ClosedByUserId = tenant.UserId!.Value, ClosedAtUtc = now,
         };
         db.CaseClosures.Add(closure);
         var revoked = await RevokeActiveRequests(caseId, now, ct);
         c.Status = EudrCaseStatus.Closed; c.UpdatedAtUtc = now;
-        audit.Add(caseId, "CaseClosed", $"Case closed (closure {closure.Id}, number {number}) as {outcome} on review {latest.Record.Id}; status was {previous}; {revoked} active supplier request(s) revoked. This is not a DDS submission.");
+        audit.Add(caseId, "CaseClosed", $"Case closed (closure {closure.Id}, number {number}) as {outcome} on review {latest.Record.Id}{(ddsRecord == null ? "" : $" and external DDS record {ddsRecord.Id}")}; status was {previous}; {revoked} active supplier request(s) revoked. This is not a DDS submission.");
         await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
         return CaseLifecycleReadService.ToDto(closure, latest.Record.Decision, latest.Revision.Number, null);
     }

@@ -7,7 +7,7 @@ public enum CaseClosureOutcome { ExternalDdsCompleted, OutsideRegulatoryScope, U
 
 // One closing of a case (Case Lifecycle v2), backed by exactly one Owner review (ReviewRecord, unique: one review backs at most one closure).
 // Number is the per-case sequence. The case is Closed iff its highest-Number closure has no CaseReopening (a service invariant, not SQL).
-// ExternalDdsReference belongs to this closure only (required for ExternalDdsCompleted, absent otherwise; unverified). Fully immutable and never deleted
+// ExternalDdsReference belongs to this closure only (for ExternalDdsCompleted a copy of the current ExternalDdsRecord.ReferenceNumber at closing, absent otherwise; unverified). Fully immutable and never deleted
 // (application-level guard): a reopen is a separate CaseReopening row, so closure history stays reconstructable.
 public sealed class CaseClosure : TenantEntity
 {

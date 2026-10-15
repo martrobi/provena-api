@@ -15,14 +15,14 @@ internal static class CaseLifecycleEndpoints
     public static void MapCaseLifecycleEndpoints(this RouteGroupBuilder api)
     {
         var group = api.MapGroup("/eudr-cases/{caseId:guid}").WithTags("Lifecycle");
-        group.MapPost("/close", Close).WithManuallyReadJsonBody<CloseCaseInput, RouteHandlerBuilder>("externalDdsReference"); // required only for the ExternalDdsCompleted outcome
+        group.MapPost("/close", Close).WithManuallyReadJsonBody<CloseCaseInput, RouteHandlerBuilder>("externalDdsReference"); // optional legacy value: rejected for other outcomes, and for ExternalDdsCompleted it must equal the current ExternalDdsRecord reference
         group.MapPost("/reopen", Reopen).WithManuallyReadJsonBody<ReopenCaseInput, RouteHandlerBuilder>();
         group.MapPost("/archive", Archive).WithManuallyReadJsonBody<ArchiveCaseInput, RouteHandlerBuilder>();
         group.MapPost("/unarchive", Unarchive).WithManuallyReadJsonBody<UnarchiveCaseInput, RouteHandlerBuilder>();
         group.MapGet("/lifecycle", Lifecycle).WithName(LifecycleRoute);
     }
 
-    private static Func<CancellationToken, Task<T?>> Body<T>(HttpRequest request, IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> json, string what) where T : class => async token =>
+    internal static Func<CancellationToken, Task<T?>> Body<T>(HttpRequest request, IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> json, string what) where T : class => async token =>
     {
         if (!request.HasJsonContentType()) throw new BadHttpRequestException("Expected a JSON request body with Content-Type application/json.", StatusCodes.Status415UnsupportedMediaType);
         try { return await request.ReadFromJsonAsync<T>(json.Value.SerializerOptions, token); }

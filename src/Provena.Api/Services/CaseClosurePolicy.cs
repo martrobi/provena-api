@@ -25,12 +25,20 @@ public static class CaseClosurePolicy
             ? $"The case cannot be closed as ExternalDdsCompleted while the quantity reconciliation is {reconciliation.Outcome}; correct the quantities and record a new review."
             : null;
 
-    // Returns the validation message, or null when the reference satisfies the outcome's rule.
-    public static string? ReferenceError(CaseClosureOutcome outcome, string? normalizedReference) => outcome switch
+    // Returns the validation message, or null when the request's (legacy, optional) reference satisfies the outcome's rule. ExternalDdsCompleted no longer needs it (the structured
+    // ExternalDdsRecord is authoritative; a supplied value must equal it, see ExternalDdsError); the other outcomes still reject any reference.
+    public static string? ReferenceError(CaseClosureOutcome outcome, string? normalizedReference) =>
+        outcome != CaseClosureOutcome.ExternalDdsCompleted && normalizedReference != null ? $"An external DDS reference is only accepted for ExternalDdsCompleted, not for {outcome}." : null;
+
+    // External DDS Record v1 gate, evaluated AFTER the stale-review and quantity gates: closing as ExternalDdsCompleted needs a current ExternalDdsRecord that points at exactly the latest
+    // (Current, accepted) review, and a legacy request reference, when supplied, must equal the record's reference number. Returns the machine-readable reason and message, or null.
+    public static (string Reason, string Message)? ExternalDdsError(CaseClosureOutcome outcome, Guid latestReviewId, ExternalDdsRecord? current, string? normalizedRequestReference)
     {
-        CaseClosureOutcome.ExternalDdsCompleted when normalizedReference == null => "An external DDS reference is required to close a case as ExternalDdsCompleted.",
-        CaseClosureOutcome.ExternalDdsCompleted => null,
-        _ when normalizedReference != null => $"An external DDS reference is only accepted for ExternalDdsCompleted, not for {outcome}.",
-        _ => null,
-    };
+        if (outcome != CaseClosureOutcome.ExternalDdsCompleted) return null;
+        if (current == null) return ("ExternalDdsRecordMissing", "Record the external DDS submission of the latest review before closing the case as ExternalDdsCompleted.");
+        if (current.ReviewId != latestReviewId) return ("ExternalDdsReviewMismatch", "The recorded external DDS submission belongs to a different review than the latest one; record the submission of the latest review.");
+        if (normalizedRequestReference != null && !string.Equals(normalizedRequestReference, current.ReferenceNumber, StringComparison.Ordinal))
+            return ("ExternalDdsReferenceMismatch", "The supplied external DDS reference differs from the recorded external DDS reference number; the recorded value is authoritative.");
+        return null;
+    }
 }

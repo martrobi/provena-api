@@ -59,6 +59,8 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
     private Task<int> Audits(Guid org, Guid caseId, string type) => Query(org, db => db.AuditEvents.CountAsync(x => x.EudrCaseId == caseId && x.EventType == type));
 
     private static Task<HttpResponseMessage> Close(HttpClient c, Guid caseId, Guid? expectedReviewId, string? ddsReference = null) => c.PostAsJsonAsync($"/api/eudr-cases/{caseId}/close", new { expectedReviewId, externalDdsReference = ddsReference });
+    // Records the external DDS submission of the review (replacing any current record), then closes as ExternalDdsCompleted with the same reference.
+    private static async Task<HttpResponseMessage> CloseDds(HttpClient c, Guid caseId, Guid reviewId, string reference) { await ExternalDdsTestSupport.RecordOk(c, caseId, reviewId, reference); return await Close(c, caseId, reviewId, reference); }
     private static Task<HttpResponseMessage> Reopen(HttpClient c, Guid caseId, Guid? expectedClosureId, string? reason = "The data needs a correction.") => c.PostAsJsonAsync($"/api/eudr-cases/{caseId}/reopen", new { expectedClosureId, reason });
     private static Task<HttpResponseMessage> Archive(HttpClient c, Guid caseId, string? reason = "Retention hold.") => c.PostAsJsonAsync($"/api/eudr-cases/{caseId}/archive", new { reason });
     private static Task<HttpResponseMessage> Unarchive(HttpClient c, Guid caseId, string? reason = "Needed again.") => c.PostAsJsonAsync($"/api/eudr-cases/{caseId}/unarchive", new { reason });
@@ -89,7 +91,7 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
     private async Task<(Owner Owner, World World, JsonElement Closure)> Closed(string decision = "ConfirmedOutsideRegulatoryScope", Opt? options = null)
     {
         var (o, w, reviewId) = await Reviewed(decision, options);
-        var closure = await Json(await Close(o.Client, w.CaseId, reviewId, decision == "AcceptedAsCompleteUnderPolicy" ? "DDS-ABC-1" : null), HttpStatusCode.Created);
+        var closure = await Json(decision == "AcceptedAsCompleteUnderPolicy" ? await CloseDds(o.Client, w.CaseId, reviewId, "DDS-ABC-1") : await Close(o.Client, w.CaseId, reviewId), HttpStatusCode.Created);
         return (o, w, closure);
     }
 
@@ -172,7 +174,7 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
         // A new review of the changed dossier closes it - ReadyForExport is not required (no supplier request was ever sent).
         Assert.Equal("Draft", await StatusOf(c, w.CaseId));
         var fresh = await Review(c, w.CaseId, "AcceptedAsCompleteUnderPolicy");
-        Assert.Equal(HttpStatusCode.Created, (await Close(c, w.CaseId, fresh, "DDS-1")).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await CloseDds(c, w.CaseId, fresh, "DDS-1")).StatusCode);
     }
 
     [Theory]
@@ -183,16 +185,17 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
     {
         var (o, w, reviewId) = await Reviewed(decision); var c = o.Client; var needsReference = outcome == "ExternalDdsCompleted";
         var link = await Json(await c.PostAsync($"/api/eudr-cases/{w.CaseId}/supplier-request", null)); var token = link.GetProperty("publicUrl").GetString()!.Split('/').Last();
-        // The reference rule: required for ExternalDdsCompleted, rejected for the others.
-        var wrong = needsReference ? new string?[] { null, "", "   " } : new string?[] { "DDS-1" };
-        foreach (var reference in wrong)
+        // The reference rule: other outcomes reject a legacy reference (400); ExternalDdsCompleted no longer takes the free text as its source, so without a recorded External DDS record it answers 409 whatever the field holds.
+        foreach (var reference in needsReference ? new string?[] { null, "", "   ", "DDS-ABC-1" } : new string?[] { "DDS-1" })
         {
-            var problem = await Problem(await Close(c, w.CaseId, reviewId, reference), HttpStatusCode.BadRequest);
-            Assert.True(problem.GetProperty("errors").TryGetProperty("ExternalDdsReference", out _));
+            var problem = await Problem(await Close(c, w.CaseId, reviewId, reference), needsReference ? HttpStatusCode.Conflict : HttpStatusCode.BadRequest);
+            if (needsReference) Assert.Equal("ExternalDdsRecordMissing", problem.GetProperty("errors").GetProperty("reason").GetString());
+            else Assert.True(problem.GetProperty("errors").TryGetProperty("ExternalDdsReference", out _));
         }
         Assert.Equal(0, await Closures(o.Org, w.CaseId)); Assert.NotEqual("Closed", await StatusOf(c, w.CaseId)); // nothing was written, the link still works
         Assert.Equal(HttpStatusCode.OK, (await factory.CreateClient().GetAsync($"/public/supplier-requests/{token}")).StatusCode);
 
+        if (needsReference) await ExternalDdsTestSupport.RecordOk(c, w.CaseId, reviewId, "DDS-ABC-1");
         var response = await Close(c, w.CaseId, reviewId, needsReference ? "  DDS-ABC-1  " : null);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.EndsWith($"/api/eudr-cases/{w.CaseId}/lifecycle", response.Headers.Location!.AbsolutePath);
@@ -256,7 +259,7 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
         var o = await NewOwner(); var c = o.Client; var w = await Build(c, o.Org);
         var link = await Json(await c.PostAsync($"/api/eudr-cases/{w.CaseId}/supplier-request", null)); var requestId = link.GetProperty("requestId").GetGuid(); var token = link.GetProperty("publicUrl").GetString()!.Split('/').Last();
         var reviewId = await Review(c, w.CaseId, "AcceptedAsCompleteUnderPolicy");
-        Assert.Equal(HttpStatusCode.Created, (await Close(c, w.CaseId, reviewId, "DDS-1")).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await CloseDds(c, w.CaseId, reviewId, "DDS-1")).StatusCode);
         var requirements = (await Details(c, w.CaseId)).GetProperty("requirements");
         var before = (await Details(c, w.CaseId)).GetProperty("requirements").GetRawText();
         var audits = await Query(o.Org, db => db.AuditEvents.CountAsync(x => x.EudrCaseId == w.CaseId));
@@ -300,7 +303,7 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
         var review1 = await Review(c, w.CaseId, "AcceptedAsCompleteUnderPolicy");
         // Not closed yet.
         Assert.Contains("not closed", (await Problem(await Reopen(c, w.CaseId, Guid.NewGuid()), HttpStatusCode.Conflict)).GetProperty("detail").GetString());
-        var closure1 = await Json(await Close(c, w.CaseId, review1, "DDS-FIRST"), HttpStatusCode.Created); var closure1Id = closure1.GetProperty("closureId").GetGuid();
+        var closure1 = await Json(await CloseDds(c, w.CaseId, review1, "DDS-FIRST"), HttpStatusCode.Created); var closure1Id = closure1.GetProperty("closureId").GetGuid();
 
         // Body shape: expectedClosureId and a non-blank reason are required.
         foreach (var body in new object[] { new { reason = "r" }, new { expectedClosureId = Guid.Empty, reason = "r" }, new { expectedClosureId = closure1Id }, new { expectedClosureId = closure1Id, reason = "   " }, new { expectedClosureId = closure1Id, reason = new string('r', 4001) } })
@@ -332,7 +335,7 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
         Assert.Equal("Current", (await Completeness(c, w.CaseId)).GetProperty("reviewFreshness").GetString());
         Assert.Contains("already backs a closure", (await Problem(await Close(c, w.CaseId, review1, "DDS-SECOND"), HttpStatusCode.Conflict)).GetProperty("detail").GetString());
         var review2 = await Review(c, w.CaseId, "AcceptedAsCompleteUnderPolicy");
-        var closure2 = await Json(await Close(c, w.CaseId, review2, "DDS-SECOND"), HttpStatusCode.Created);
+        var closure2 = await Json(await CloseDds(c, w.CaseId, review2, "DDS-SECOND"), HttpStatusCode.Created);
         Assert.Equal(2, closure2.GetProperty("number").GetInt32()); Assert.Equal(2, closure2.GetProperty("reviewRevisionNumber").GetInt32());
 
         // Both closures stay reconstructable, with their own references and reviews; the current one is the second.
@@ -501,7 +504,7 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
         if (decision == "ConfirmedOutsideRegulatoryScope") await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", Application("OutsideRegulatoryScope", "Pending")));
         if (decision == "ConfirmedUnsupportedFlow") await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", Application(activity: "Export")));
         var review = await Review(c, w.CaseId, decision);
-        return (review, w, await Json(await Close(c, w.CaseId, review, decision == "AcceptedAsCompleteUnderPolicy" ? "DDS-D" : null), HttpStatusCode.Created));
+        return (review, w, await Json(decision == "AcceptedAsCompleteUnderPolicy" ? await CloseDds(c, w.CaseId, review, "DDS-D") : await Close(c, w.CaseId, review), HttpStatusCode.Created));
     }
 
     // ---- concurrency ---------------------------------------------------------------------------------------------------------------------------
@@ -530,6 +533,7 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
         for (var round = 0; round < 3; round++)
         {
             var (o, w, reviewId) = await Reviewed("AcceptedAsCompleteUnderPolicy", new Opt()); var c = o.Client;
+            await ExternalDdsTestSupport.RecordOk(c, w.CaseId, reviewId, "DDS-RACE");
             var close = Close(c, w.CaseId, reviewId, "DDS-RACE"); var write = c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/recipients", Recipients("Raced GmbH"));
             var (closeResponse, writeResponse) = (await close, await write);
             var (closeStatus, writeStatus) = (closeResponse.StatusCode, writeResponse.StatusCode);
@@ -571,7 +575,7 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
             if (schema.TryGetProperty("$ref", out var reference)) schema = document.GetProperty("components").GetProperty("schemas").GetProperty(reference.GetString()!.Split('/').Last());
             return schema.TryGetProperty("required", out var required) ? required.EnumerateArray().Select(x => x.GetString()!).Order().ToArray() : [];
         }
-        Assert.Equal(["expectedReviewId"], Required("close"));          // externalDdsReference is only required for the ExternalDdsCompleted outcome
+        Assert.Equal(["expectedReviewId"], Required("close"));          // externalDdsReference is an optional legacy value
         Assert.Equal(["expectedClosureId", "reason"], Required("reopen"));
         Assert.Equal(["reason"], Required("archive")); Assert.Equal(["reason"], Required("unarchive"));
         Assert.True(Body("close").GetProperty("required").GetBoolean());

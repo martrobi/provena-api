@@ -209,6 +209,7 @@ public sealed class QuantityReconciliationTests(ApiFactory factory)
         var current = await Completeness(o.Client, w.CaseId);
         Assert.Equal("Current", current.GetProperty("reviewFreshness").GetString()); Assert.True(current.GetProperty("latestReview").GetProperty("policyChanged").GetBoolean()); Assert.Equal("1", current.GetProperty("latestReview").GetProperty("policyVersion").GetString());
 
+        // No External DDS record exists yet: the quantity gate still comes before the DDS gate.
         var response = await Close(o.Client, w.CaseId, reviewId, "DDS-ABC-1");
         var problem = await Problem(response, HttpStatusCode.Conflict);
         Assert.Equal(409, problem.GetProperty("status").GetInt32()); Assert.True(problem.TryGetProperty("traceId", out _)); Assert.Contains("ExternalDdsCompleted", problem.GetProperty("detail").GetString());
@@ -224,11 +225,17 @@ public sealed class QuantityReconciliationTests(ApiFactory factory)
         Assert.Equal(statusBefore, await CaseStatus(o.Client, w.CaseId)); Assert.Equal(0, await RevokedRequests(o.Org, w.CaseId));
         using var publicClient = factory.CreateClient(); Assert.Equal(HttpStatusCode.OK, (await publicClient.GetAsync($"/public/supplier-requests/{token}")).StatusCode);
 
+        // Recording the external fact does not need Matched quantities (it happened outside Provena); closing as ExternalDdsCompleted still does.
+        await ExternalDdsTestSupport.RecordOk(o.Client, w.CaseId, reviewId, "DDS-ABC-1");
+        Assert.Equal("QuantityNotReconciled", (await Problem(await Close(o.Client, w.CaseId, reviewId, "DDS-ABC-1"), HttpStatusCode.Conflict)).GetProperty("errors").GetProperty("reason").GetString());
+        Assert.Equal(0, await Closures(o.Org, w.CaseId));
+
         // Correcting the quantities changes the facts, so the old review is Stale and a new review of the corrected dossier is needed.
         await Ok(SaveLot(w, 10m, 10m));
         var stale = await Problem(await Close(o.Client, w.CaseId, reviewId, "DDS-ABC-1"), HttpStatusCode.Conflict);
         Assert.Equal("StaleReview", stale.GetProperty("errors").GetProperty("reason").GetString());
         var fresh = await Json(await ReviewNow(o.Client, w.CaseId, "AcceptedAsCompleteUnderPolicy"), HttpStatusCode.Created);
+        await ExternalDdsTestSupport.RecordOk(o.Client, w.CaseId, fresh.GetProperty("reviewId").GetGuid(), "DDS-ABC-1");
         var closed = await Close(o.Client, w.CaseId, fresh.GetProperty("reviewId").GetGuid(), "DDS-ABC-1");
         Assert.Equal(HttpStatusCode.Created, closed.StatusCode); Assert.Equal("ExternalDdsCompleted", (await Json(closed)).GetProperty("outcome").GetString());
     }
@@ -265,6 +272,7 @@ public sealed class QuantityReconciliationTests(ApiFactory factory)
         var o = await NewOwner(); var w = await Build(o.Client, o.Org);
         var state = await Completeness(o.Client, w.CaseId); Assert.Equal("Matched", Outcome(state));
         var reviewId = await InsertPolicyV1AcceptedReview(o, w.CaseId, Fingerprint(state));
+        await ExternalDdsTestSupport.RecordOk(o.Client, w.CaseId, reviewId, "DDS-ABC-2");
         var response = await Close(o.Client, w.CaseId, reviewId, "DDS-ABC-2");
         Assert.Equal(HttpStatusCode.Created, response.StatusCode); Assert.EndsWith($"/api/eudr-cases/{w.CaseId}/lifecycle", response.Headers.Location!.AbsolutePath);
         var closure = await Json(response);
