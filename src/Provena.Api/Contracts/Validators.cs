@@ -208,3 +208,30 @@ public sealed class CaseReviewValidator : AbstractValidator<CaseReviewInput>
         RuleFor(x => x.ExpectedFingerprint).NotEmpty().Matches("^[0-9a-f]{64}$").WithMessage("expectedFingerprint must be the 64-character hexadecimal fingerprint returned by the completeness endpoint.");
     }
 }
+
+// Case Lifecycle v2. Run on the trimmed input (a blank DDS reference was already turned into null); reasons are required and non-blank. The outcome-dependent DDS-reference rule
+// lives in CaseClosurePolicy because it needs the outcome derived from the review.
+public sealed class CloseCaseValidator : AbstractValidator<CloseCaseInput>
+{
+    public CloseCaseValidator()
+    {
+        RuleFor(x => x.ExpectedReviewId).NotNull().NotEqual(Guid.Empty).WithMessage("expectedReviewId is the id of the latest review the Owner loaded.");
+        RuleFor(x => x.ExternalDdsReference).MaximumLength(200);
+    }
+}
+public sealed class ReopenCaseValidator : AbstractValidator<ReopenCaseInput>
+{
+    public ReopenCaseValidator()
+    {
+        RuleFor(x => x.ExpectedClosureId).NotNull().NotEqual(Guid.Empty).WithMessage("expectedClosureId is the id of the current closure the Owner loaded.");
+        RuleFor(x => x.Reason).NotEmpty().MaximumLength(4000);
+    }
+}
+public sealed class ArchiveCaseValidator : AbstractValidator<ArchiveCaseInput>
+{
+    public ArchiveCaseValidator() { RuleFor(x => x.Reason).NotEmpty().MaximumLength(4000); }
+}
+public sealed class UnarchiveCaseValidator : AbstractValidator<UnarchiveCaseInput>
+{
+    public UnarchiveCaseValidator() { RuleFor(x => x.Reason).NotEmpty().MaximumLength(4000); }
+}

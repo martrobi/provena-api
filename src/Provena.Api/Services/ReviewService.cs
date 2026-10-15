@@ -6,11 +6,11 @@ using Provena.Api.Contracts;
 using Provena.Api.Data;
 using Provena.Api.Domain;
 namespace Provena.Api.Services;
-// Creates the immutable human review of the current working dossier (ADR 0008). Owner-only through a LIVE membership check (never the JWT role, never a cached claim)
+// Creates the immutable human review of the current working dossier (ADR 0008). Owner-only through the shared OwnerGate: a LIVE membership check (never the JWT role, never a cached claim)
 // that runs before any case lookup, so a Member learns nothing about a case. The ORDER of the steps in Create is a contract: do not reorder them.
 // A review records a decision on exactly the facts the Owner loaded (expectedFingerprint + expectedLatestReviewId). It never changes requirements, the case status or Complete,
 // and no decision is a legal-compliance determination. Audit text carries ids and the decision name only.
-public sealed class ReviewService(AppDbContext db, TenantContext tenant, CaseService cases, CompletenessService completeness, ReviewFreshnessService freshness, AuditService audit, IValidator<CaseReviewInput> validator)
+public sealed class ReviewService(AppDbContext db, TenantContext tenant, CaseService cases, OwnerGate owner, CompletenessService completeness, ReviewFreshnessService freshness, AuditService audit, IValidator<CaseReviewInput> validator)
 {
     // The request body is supplied as a reader and examined only at step 5, so a Member (step 2) is denied before the case AND before the body is even parsed.
     public async Task<ReviewDetailDto> Create(Guid caseId, Func<CancellationToken, Task<CaseReviewInput?>> readBody, CancellationToken ct)
@@ -18,7 +18,7 @@ public sealed class ReviewService(AppDbContext db, TenantContext tenant, CaseSer
         // 1. Transaction.
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         // 2. Live Owner membership check, before any case lookup (403 whatever the case id or the body).
-        await RequireOwner(ct);
+        await owner.Require("Only an organization owner can record a review.", ct);
         // 3. Tenant-scoped case lock (404 unknown or foreign).
         var c = await cases.Lock(caseId, ct);
         // 4. The case must be mutable (409 Closed or archived).
@@ -82,13 +82,5 @@ public sealed class ReviewService(AppDbContext db, TenantContext tenant, CaseSer
         // 20. Save and commit.
         await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
         return ReviewReadService.ToDetail(revision, record, documentIds, linkIds, snapshot);
-    }
-
-    // Live check against OrganizationUsers (UserId + OrganizationId + Role Owner). A removed or demoted Owner is denied even with a still-valid token.
-    private async Task RequireOwner(CancellationToken ct)
-    {
-        var userId = tenant.UserId;
-        if (userId == null || tenant.OrganizationId == Guid.Empty || !await db.OrganizationUsers.AsNoTracking().AnyAsync(x => x.UserId == userId && x.OrganizationId == tenant.OrganizationId && x.Role == OrganizationRole.Owner, ct))
-            throw new ApiException(403, "Only an organization owner can record a review.");
     }
 }

@@ -13,7 +13,7 @@ public sealed record TokenResponse(string AccessToken, DateTimeOffset ExpiresAtU
 public sealed record RequestLink(Guid RequestId, string PublicUrl, DateTimeOffset ExpiresAtUtc);
 public sealed record ImportError(int Row, string Message);
 public sealed record ImportResult(int TotalRows, int Imported, int Failed, IReadOnlyList<ImportError> Errors);
-public sealed record CaseListItem(Guid Id, string ShipmentReference, string SupplierName, string ProductName, EudrCaseStatus Status, int MissingRequiredCount, int SubmittedForReviewCount, DateTimeOffset UpdatedAtUtc);
+public sealed record CaseListItem(Guid Id, string ShipmentReference, string SupplierName, string ProductName, EudrCaseStatus Status, int MissingRequiredCount, int SubmittedForReviewCount, DateTimeOffset UpdatedAtUtc, bool Archived, CaseClosureOutcome? ClosureOutcome);
 public sealed record DocumentDto(Guid Id, string OriginalFileName, string ContentType, long SizeBytes, DocumentCategory Category, UploadedByType UploadedByType, DateTimeOffset UploadedAtUtc, DateTimeOffset? WithdrawnAtUtc = null);
 public sealed record GeoDto(Guid Id, string OriginalFileName, int FeatureCount, string GeometryTypes, GeoValidationStatus ValidationStatus, string? ValidationMessage, DateTimeOffset UploadedAtUtc, DateTimeOffset? SupersededAtUtc = null);
 public sealed record SupplierSubmissionVersionDto(Guid Id, string? CountryOfProductionCode, DateOnly? ProductionPeriodFrom, DateOnly? ProductionPeriodTo, decimal? ConfirmedQuantity, string? Notes, DateTimeOffset? SubmittedAtUtc, DateTimeOffset? SupersededAtUtc, Guid? SupplierRequestId, DateTimeOffset CreatedAtUtc);
@@ -22,7 +22,7 @@ public sealed record SupplierRequestDto(Guid Id, string Status, DateTimeOffset E
 public sealed record CaseDetails(Guid Id, EudrCaseStatus Status, Shipment Shipment, Supplier Supplier, Product Product,
     SupplierSubmission? SupplierSubmission, List<EudrRequirement> Requirements, List<DocumentDto> Documents,
     GeoDto? Geolocation, SupplierRequestDto? SupplierRequest, List<AuditEvent> AuditEvents,
-    DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, CaseClosureDto? Closure, CaseArchivalDto? Archive);
 public sealed record ProducerInput(string Name, string? ExternalReference, string? CountryCode, string? Notes, bool? IsActive = null);
 public sealed record ProductionPlotInput(Guid ProducerId, string Name, string? ExternalReference, string? Notes, PlotRevisionInput InitialRevision);
 public sealed record ProductionPlotUpdateInput(string Name, string? ExternalReference, string? Notes, bool? IsActive = null);

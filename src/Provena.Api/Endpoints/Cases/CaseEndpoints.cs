@@ -14,8 +14,9 @@ internal static class CaseEndpoints
         group.MapPost("/{caseId:guid}/supplier-request", CreateSupplierRequest);
         group.MapGet("/{caseId:guid}/export", Export);
     }
-    private static async Task<Ok<PageResult<CaseListItem>>> List(string? status, Guid? supplierId, Guid? productId, string? search, CaseService service, CancellationToken ct, int page = 1, int pageSize = 25)
-        => TypedResults.Ok(await service.List(EndpointConventions.ParseEnum<EudrCaseStatus>(status, nameof(status)), supplierId, productId, search, page, pageSize, ct));
+    // archived: exclude (default) | only | include. Archive is independent of the status, so archived cases are hidden unless asked for.
+    private static async Task<Ok<PageResult<CaseListItem>>> List(string? status, Guid? supplierId, Guid? productId, string? archived, string? search, CaseService service, CancellationToken ct, int page = 1, int pageSize = 25)
+        => TypedResults.Ok(await service.List(EndpointConventions.ParseEnum<EudrCaseStatus>(status, nameof(status)), supplierId, productId, EndpointConventions.ParseEnum<ArchivedFilter>(archived, nameof(archived)) ?? ArchivedFilter.Exclude, search, page, pageSize, ct));
     private static async Task<Ok<CaseDetails>> Details(Guid id, CaseService service, CancellationToken ct) => TypedResults.Ok(await service.Details(id, ct));
     private static async Task<NoContent> Review(Guid caseId, Guid requirementId, ReviewInput input, CaseService service, CancellationToken ct)
     { await service.Review(caseId, requirementId, input, ct); return TypedResults.NoContent(); }

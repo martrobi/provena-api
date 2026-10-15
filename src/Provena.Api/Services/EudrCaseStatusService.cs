@@ -17,6 +17,16 @@ public sealed class EudrCaseStatusService(AppDbContext db, AuditService audit)
     // A Closed case keeps its status until it is explicitly reopened; archive does not appear here because it is independent of the workflow status.
     public static EudrCaseStatus Calculate(EudrCaseStatus current, bool requestSent, IReadOnlyCollection<EudrRequirement> requirements)
         => current == EudrCaseStatus.Closed ? current : CalculateOpen(requestSent, requirements);
+    // Leaves Closed after an explicit reopen: the workflow status is derived afresh from requests and requirements. Returns the new status; the caller writes the lifecycle audit event.
+    public async Task<EudrCaseStatus> RecalculateAfterReopen(EudrCase c, CancellationToken ct)
+    {
+        var requirements = await db.Requirements.Where(x => x.EudrCaseId == c.Id).ToListAsync(ct);
+        var sent = await db.SupplierRequests.AnyAsync(x => x.EudrCaseId == c.Id && x.SentAtUtc != null, ct);
+        c.Status = CalculateOpen(sent, requirements);
+        c.InternalReviewCompletedAtUtc = c.Status == EudrCaseStatus.ReadyForExport ? DateTimeOffset.UtcNow : null;
+        c.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        return c.Status;
+    }
     public async Task Recalculate(EudrCase c, CancellationToken ct)
     {
         var requirements = await db.Requirements.Where(x => x.EudrCaseId == c.Id).ToListAsync(ct);

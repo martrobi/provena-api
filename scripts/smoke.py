@@ -72,8 +72,24 @@ with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
 output = Path(args.output)
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_bytes(archive)
-call('POST', case + '/complete', {'externalDdsReference': 'SMOKE-' + suffix})
-assert call('GET', case)['status'] == 'Completed'
-print('PASS: register/login -> shipment -> supplier submission -> review -> ZIP -> Completed.')
+# Case Lifecycle v2: an Owner review of the recorded facts, then close, reopen, archive and unarchive. The registering user is the organization Owner.
+call('POST', case + '/master-data/refresh')
+call('PUT', case + '/applicability', {'productDescription': 'Green coffee beans', 'singleRelevantCommodity': True, 'activityType': 'PlacingOnMarketByImport', 'operatorRole': 'Operator',
+    'activityDate': '2026-06-01', 'activityDateKind': 'Planned', 'scopeCitation': 'Regulation (EU) 2023/1115, Annex I', 'legalBasisVersion': '2023/1115 as applicable',
+    'effectiveDate': '2026-01-01', 'reasoning': 'Smoke test assessment.', 'regulatoryScope': 'OutsideRegulatoryScope', 'flowSupport': 'Pending'})
+state = call('GET', case + '/completeness')
+review = call('POST', case + '/reviews', {'decision': 'ConfirmedOutsideRegulatoryScope', 'rationale': 'Smoke test review.', 'expectedFingerprint': state['fingerprint'], 'expectedLatestReviewId': None})
+closure = call('POST', case + '/close', {'expectedReviewId': review['reviewId']})
+assert closure['outcome'] == 'OutsideRegulatoryScope' and closure['number'] == 1
+assert call('GET', case)['status'] == 'Closed'
+reopening = call('POST', case + '/reopen', {'expectedClosureId': closure['closureId'], 'reason': 'Smoke test reopen.'})
+assert call('GET', case)['status'] != 'Closed'
+history = call('GET', case + '/lifecycle')
+assert history['currentClosure'] is None and history['closures'][0]['reopening']['reopeningId'] == reopening['reopeningId']
+call('POST', case + '/archive', {'reason': 'Smoke test archive.'})
+assert call('GET', case)['archive'] is not None
+call('POST', case + '/unarchive', {'reason': 'Smoke test unarchive.'})
+assert call('GET', case + '/lifecycle')['archived'] is False
+print('PASS: register/login -> shipment -> supplier submission -> review -> ZIP -> Owner review -> close -> reopen -> archive -> unarchive.')
 print('ZIP:', output.resolve())
 print('A new test organization was created. No credentials or public tokens were printed or saved.')

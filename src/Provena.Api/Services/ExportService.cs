@@ -9,7 +9,7 @@ using Provena.Api.Data;
 using Provena.Api.Infrastructure;
 namespace Provena.Api.Services;
 public sealed record ExportResult(Stream Stream, string FileName);
-public sealed class ExportService(AppDbContext db, CaseService cases, CaseDossierService dossiers, CompletenessService completeness, IFileStorage storage, AuditService audit)
+public sealed class ExportService(AppDbContext db, CaseService cases, CaseDossierService dossiers, CompletenessService completeness, CaseLifecycleReadService lifecycle, IFileStorage storage, AuditService audit)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
     public async Task<ExportResult> Export(Guid id, CancellationToken ct)
@@ -27,6 +27,7 @@ public sealed class ExportService(AppDbContext db, CaseService cases, CaseDossie
         var supersededLotVersions = await db.CaseLots.CountAsync(x => x.SupersededAtUtc != null && db.CaseDossiers.Any(d => d.Id == x.CaseDossierId && d.EudrCaseId == id), ct);
         var dossier = await dossiers.Dossier(id, ct);
         var currentCompleteness = await completeness.Compute(c, ct); // inside the case-locked transaction, so it matches the rest of the package
+        var lifecycleHistory = await lifecycle.Build(c, ct); // closures with their reviews and reopenings and the archive periods, read under the same case lock
         // Distinct pinned revisions of the current lot only; the stored normalized geometry is written once per revision.
         var pinnedIds = dossier?.CurrentLot.Contributions.SelectMany(x => x.Plots).Select(x => x.PlotRevisionId).Distinct().ToList() ?? [];
         var pinnedRevisions = pinnedIds.Count == 0 ? [] : await db.PlotRevisions.AsNoTracking().Where(x => pinnedIds.Contains(x.Id)).OrderBy(x => x.Id).ToListAsync(ct);
@@ -49,7 +50,7 @@ public sealed class ExportService(AppDbContext db, CaseService cases, CaseDossie
                         documents = details.Documents, geolocation = details.Geolocation,
                         caseId = details.Id, status = details.Status,
                         createdAtUtc = details.CreatedAtUtc, updatedAtUtc = details.UpdatedAtUtc,
-                        auditEvents = details.AuditEvents,
+                        auditEvents = details.AuditEvents, lifecycle = lifecycleHistory,
                         exportedAtUtc = DateTimeOffset.UtcNow,
                         notice = "Operational documentation only. ReadyForExport is not a legal EUDR compliance determination.",
                         evidenceScope = "Current working evidence at export time. This is not a reviewed dossier snapshot; withdrawn or superseded versions are retained in Provena and are not included.",
