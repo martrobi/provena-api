@@ -21,8 +21,8 @@ public sealed class ReviewService(AppDbContext db, TenantContext tenant, CaseSer
         await RequireOwner(ct);
         // 3. Tenant-scoped case lock (404 unknown or foreign).
         var c = await cases.Lock(caseId, ct);
-        // 4. The case must be editable (409 Completed/Archived).
-        CaseService.EnsureEditable(c);
+        // 4. The case must be mutable (409 Closed or archived).
+        await cases.EnsureMutable(c, ct);
         // 5. Body validation (400).
         var input = await readBody(ct) ?? throw new ApiException(400, "A JSON request body is required.");
         var request = input with { Rationale = (input.Rationale ?? "").Trim(), ExpectedFingerprint = (input.ExpectedFingerprint ?? "").Trim().ToLowerInvariant() };

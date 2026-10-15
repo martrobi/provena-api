@@ -26,18 +26,44 @@ public sealed class DomainTests
         Assert.False(service.IsWellFormed("../bad"));
     }
 
-    [Theory]
-    [InlineData(EudrCaseStatus.Completed)]
-    [InlineData(EudrCaseStatus.Archived)]
-    public void Terminal_cases_are_not_recalculated(EudrCaseStatus status) =>
+    [Fact]
+    public void A_closed_case_is_not_recalculated_until_it_is_explicitly_reopened() =>
         Assert.Equal(
-            status,
-            EudrCaseStatusService.Calculate(
-                status,
-                true,
-                [new() { Status = RequirementStatus.Missing }]
-            )
+            EudrCaseStatus.Closed,
+            EudrCaseStatusService.Calculate(EudrCaseStatus.Closed, true, [new() { Status = RequirementStatus.Missing }])
         );
+
+    [Theory]
+    [InlineData(EudrCaseStatus.Draft)]
+    [InlineData(EudrCaseStatus.WaitingForSupplier)]
+    [InlineData(EudrCaseStatus.ReviewNeeded)]
+    [InlineData(EudrCaseStatus.ReadyForExport)]
+    public void Open_cases_are_recalculated_from_requests_and_requirements_whatever_their_current_status(EudrCaseStatus current)
+    {
+        EudrRequirement[] requirements = [new() { Status = RequirementStatus.Missing }];
+        Assert.Equal(EudrCaseStatus.WaitingForSupplier, EudrCaseStatusService.Calculate(current, true, requirements));
+        Assert.Equal(EudrCaseStatus.Draft, EudrCaseStatusService.Calculate(current, false, requirements));
+    }
+
+    [Fact]
+    public void CalculateOpen_follows_the_documented_priority_and_never_returns_Closed()
+    {
+        var all = Enum.GetValues<RequirementType>().Select(t => new EudrRequirement { Type = t, Status = RequirementStatus.Accepted }).ToArray();
+        Assert.Equal(EudrCaseStatus.Draft, EudrCaseStatusService.CalculateOpen(false, all)); // a request that was never sent wins over everything
+        Assert.Equal(EudrCaseStatus.ReadyForExport, EudrCaseStatusService.CalculateOpen(true, all));
+        all[0].Status = RequirementStatus.Submitted;
+        Assert.Equal(EudrCaseStatus.ReviewNeeded, EudrCaseStatusService.CalculateOpen(true, all));
+        all[1].Status = RequirementStatus.Missing; // a missing required item outranks a submitted one
+        Assert.Equal(EudrCaseStatus.WaitingForSupplier, EudrCaseStatusService.CalculateOpen(true, all));
+        all[1].IsRequired = false; // an optional missing item does not wait for the supplier
+        Assert.Equal(EudrCaseStatus.ReviewNeeded, EudrCaseStatusService.CalculateOpen(true, all));
+        all[0].Status = RequirementStatus.Rejected;
+        Assert.Equal(EudrCaseStatus.ReviewNeeded, EudrCaseStatusService.CalculateOpen(true, all));
+        all[0].Status = RequirementStatus.NotRequired;
+        all[1].Status = RequirementStatus.Accepted;
+        Assert.Equal(EudrCaseStatus.ReadyForExport, EudrCaseStatusService.CalculateOpen(true, all));
+        Assert.Equal(EudrCaseStatus.ReadyForExport, EudrCaseStatusService.CalculateOpen(true, [])); // vacuous: no required item is open
+    }
 
     [Fact]
     public void Status_rules_follow_documented_priority()

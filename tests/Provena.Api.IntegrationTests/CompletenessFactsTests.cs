@@ -668,8 +668,8 @@ public sealed class CompletenessFactsTests(ApiFactory factory)
         await Status(PutApplicability(a, ids.CaseId, Application()), HttpStatusCode.OK);
         var recipients = await a.PutAsJsonAsync($"/api/eudr-cases/{ids.CaseId}/recipients", Identified(Recipient())); Assert.Equal(HttpStatusCode.OK, recipients.StatusCode);
         var document = await NewDocument(a, ids.CaseId); var link = (await Json(await PostLink(a, ids.CaseId, document), HttpStatusCode.Created)).GetProperty("id").GetGuid();
-        await Status(a.DeleteAsync($"/api/shipments/{ids.ShipmentId}"), HttpStatusCode.NoContent);
-        Assert.Equal("Archived", (await Json(await a.GetAsync($"/api/eudr-cases/{ids.CaseId}"))).GetProperty("status").GetString());
+        await LifecycleTestSupport.Archive(factory.Services, ids.CaseId); // Archive is independent of the workflow status and read-only.
+        Assert.Equal("Draft", (await Json(await a.GetAsync($"/api/eudr-cases/{ids.CaseId}"))).GetProperty("status").GetString()); // archive never changes the workflow status
 
         await Problem(await a.PostAsync($"/api/eudr-cases/{ids.CaseId}/master-data/refresh", null), HttpStatusCode.Conflict);
         await Problem(await PutApplicability(a, ids.CaseId, Application(reasoning: "changed")), HttpStatusCode.Conflict);

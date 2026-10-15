@@ -1,6 +1,7 @@
 namespace Provena.Api.Domain;
 
-public enum EudrCaseStatus { Draft, WaitingForSupplier, ReviewNeeded, ReadyForExport, Completed, Archived }
+// Workflow status only. Closed is entered through an Owner-backed CaseClosure and left through a CaseReopening; archive is a separate dimension (CaseArchival).
+public enum EudrCaseStatus { Draft, WaitingForSupplier, ReviewNeeded, ReadyForExport, Closed }
 
 public sealed class EudrCase : TenantEntity
 {
@@ -8,9 +9,7 @@ public sealed class EudrCase : TenantEntity
     public EudrCaseStatus Status { get; set; }
     public DateTimeOffset? SupplierSubmissionCompletedAtUtc { get; set; }
     public DateTimeOffset? InternalReviewCompletedAtUtc { get; set; }
-    public DateTimeOffset? CompletedAtUtc { get; set; }
     public string? InternalNotes { get; set; }
-    public string? ExternalDdsReference { get; set; }
 }
 
 public enum RequirementType { SupplierInformation, CountryOfProduction, ProductionPeriod, Geolocation, SupportingDocuments, QuantityConfirmation }

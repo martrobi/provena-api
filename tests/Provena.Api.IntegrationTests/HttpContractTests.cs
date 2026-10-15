@@ -74,16 +74,11 @@ public sealed class HttpContractTests(ApiFactory factory)
     }
 
     [Fact]
-    public async Task Null_geolocation_returns_204_and_optional_complete_body_reaches_the_service()
+    public async Task Null_geolocation_returns_204_with_an_empty_body()
     {
         var (a, _) = await Tenants(); var caseId = await Case(a);
         var geo = await a.GetAsync($"/api/eudr-cases/{caseId}/geolocation");
         Assert.Equal(HttpStatusCode.NoContent, geo.StatusCode); Assert.Empty(await geo.Content.ReadAsByteArrayAsync());
-        // A Draft case cannot complete: 409 proves the request bound and reached CaseService for every optional-body form.
-        await Problem(await a.PostAsync($"/api/eudr-cases/{caseId}/complete", null), HttpStatusCode.Conflict);
-        await Problem(await a.PostAsync($"/api/eudr-cases/{caseId}/complete", RawJson("")), HttpStatusCode.Conflict);
-        await Problem(await a.PostAsync($"/api/eudr-cases/{caseId}/complete", RawJson("{}")), HttpStatusCode.Conflict);
-        await Problem(await a.PostAsync($"/api/eudr-cases/{caseId}/complete", RawJson("""{"externalDdsReference":"X-1"}""")), HttpStatusCode.Conflict);
     }
 
     [Fact]
@@ -111,7 +106,7 @@ public sealed class HttpContractTests(ApiFactory factory)
         var malformed = await Problem(await a.PostAsync("/api/suppliers", RawJson("{\"name\":")), HttpStatusCode.BadRequest);
         Assert.Equal("Validation failed", malformed.GetProperty("title").GetString());
         Assert.Equal(HttpStatusCode.BadRequest, (await a.PostAsync("/api/suppliers", RawJson(""))).StatusCode);
-        // No body and no Content-Type where a JSON body is required: 415, as with MVC. Optional bodies (complete) still accept it.
+        // No body and no Content-Type where a JSON body is required: 415, as with MVC.
         await Problem(await a.PostAsync("/api/suppliers", null), HttpStatusCode.UnsupportedMediaType);
         await Problem(await a.PutAsync($"/api/suppliers/{Guid.NewGuid()}", null), HttpStatusCode.UnsupportedMediaType);
         using (var anonymous = factory.CreateClient())
@@ -228,7 +223,6 @@ public sealed class HttpContractTests(ApiFactory factory)
         var validation = await Problem(await a.PostAsJsonAsync("/api/suppliers", new { name = "" }), HttpStatusCode.BadRequest);
         Assert.Equal("Validation failed", validation.GetProperty("title").GetString()); Assert.True(validation.GetProperty("errors").TryGetProperty("Name", out _));
         await Problem(await b.GetAsync($"/api/eudr-cases/{caseId}"), HttpStatusCode.NotFound);
-        await Problem(await a.PostAsync($"/api/eudr-cases/{caseId}/complete", null), HttpStatusCode.Conflict);
         await Problem(await anonymous.GetAsync("/public/supplier-requests/not-a-valid-token"), HttpStatusCode.NotFound);
     }
 
@@ -358,7 +352,7 @@ public sealed class HttpContractTests(ApiFactory factory)
         {
             "/api/auth/register", "/api/auth/login", "/api/auth/me", "/api/suppliers", "/api/suppliers/{id}", "/api/products", "/api/products/{id}",
             "/api/shipments", "/api/shipments/{id}", "/api/eudr-cases", "/api/eudr-cases/{id}", "/api/eudr-cases/{caseId}/requirements/{requirementId}",
-            "/api/eudr-cases/{caseId}/supplier-request", "/api/eudr-cases/{caseId}/complete", "/api/eudr-cases/{caseId}/export", "/api/dashboard",
+            "/api/eudr-cases/{caseId}/supplier-request", "/api/eudr-cases/{caseId}/export", "/api/dashboard",
             "/api/supplier-requests/{id}/revoke", "/api/supplier-requests/{id}/regenerate", "/api/eudr-cases/{caseId}/documents",
             "/api/eudr-cases/{caseId}/documents/{documentId}", "/api/eudr-cases/{caseId}/geolocation", "/api/eudr-cases/{caseId}/evidence-history", "/api/eudr-cases/{caseId}/geolocation/{geolocationId}/file", "/api/import/suppliers", "/api/import/products",
             "/api/eudr-cases/{caseId}/dossier", "/api/eudr-cases/{caseId}/dossier/lot", "/api/eudr-cases/{caseId}/dossier/lot-history",
@@ -372,7 +366,7 @@ public sealed class HttpContractTests(ApiFactory factory)
             "/public/supplier-requests/{token}/geolocation", "/public/supplier-requests/{token}/complete",
         })
             Assert.Contains(path, paths);
-        Assert.Equal(54, paths.Count);
+        Assert.Equal(53, paths.Count);
         // The review POST reads its body by hand (so the Owner check precedes parsing); its request body must still be advertised.
         var reviewPost = document.GetProperty("paths").GetProperty("/api/eudr-cases/{caseId}/reviews").GetProperty("post");
         Assert.True(reviewPost.GetProperty("requestBody").GetProperty("content").TryGetProperty("application/json", out var reviewBody));

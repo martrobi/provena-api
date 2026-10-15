@@ -30,7 +30,7 @@ public sealed class CaseRecipientService(AppDbContext db, TenantContext tenant, 
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         // The route case is resolved and locked (404) and must be editable (409) before the body is examined (400).
-        var c = await cases.Lock(caseId, ct); CaseService.EnsureEditable(c);
+        var c = await cases.Lock(caseId, ct); await cases.EnsureMutable(c, ct);
         var normalized = Normalize(input);
         await validator.ValidateAndThrowAsync(normalized, ct);
 

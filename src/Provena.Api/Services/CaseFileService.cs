@@ -23,7 +23,7 @@ public sealed class CaseFileService(AppDbContext db, TenantContext tenant, CaseS
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         SupplierRequest? request = null; EudrCase c;
         if (token != null) { (request, c) = await requests.LockPublic(token, ct); }
-        else { c = await cases.Lock(caseId!.Value, ct); CaseService.EnsureEditable(c); }
+        else { c = await cases.Lock(caseId!.Value, ct); await cases.EnsureMutable(c, ct); }
         FileStorageResult? saved = null; var commitAttempted = false;
         try
         {
@@ -76,7 +76,7 @@ public sealed class CaseFileService(AppDbContext db, TenantContext tenant, CaseS
     { var d = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == documentId && x.EudrCaseId == caseId, ct) ?? throw ApiException.NotFound(); return (await storage.OpenReadAsync(d.StorageKey, ct), d.ContentType, d.OriginalFileName); }
     public async Task Delete(Guid caseId, Guid documentId, CancellationToken ct)
     {
-        await using var tx = await db.Database.BeginTransactionAsync(ct); var c = await cases.Lock(caseId, ct); CaseService.EnsureEditable(c);
+        await using var tx = await db.Database.BeginTransactionAsync(ct); var c = await cases.Lock(caseId, ct); await cases.EnsureMutable(c, ct);
         var d = await db.Documents.SingleOrDefaultAsync(x => x.Id == documentId && x.EudrCaseId == caseId, ct) ?? throw ApiException.NotFound();
         if (d.WithdrawnAtUtc != null) return; // Already withdrawn: idempotent no-op (no audit event, no requirement change).
         // Withdrawal, not deletion: the row and the stored bytes are retained as evidence.

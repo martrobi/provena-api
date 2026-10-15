@@ -340,10 +340,10 @@ public sealed class CaseDossierTests(ApiFactory factory)
         await Problem(await Put(a, ids.CaseId, invalid), HttpStatusCode.BadRequest);
         await Problem(await Put(b, ids.CaseId, invalid), HttpStatusCode.NotFound);
         await Problem(await Put(a, Guid.NewGuid(), invalid), HttpStatusCode.NotFound);
-        // Terminal case: EnsureEditable (409) runs before body validation (400).
+        // Closed case: EnsureMutable (409) runs before body validation (400).
         await Save(a, ids.CaseId, Lot(Unique("LOT"), 10, Single(s, 10)));
         await using (var scope = factory.Services.CreateAsyncScope())
-            await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.ExecuteSqlRawAsync("""UPDATE "Cases" SET "Status" = {0} WHERE "Id" = {1}""", (int)EudrCaseStatus.Completed, ids.CaseId);
+            await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.ExecuteSqlRawAsync("""UPDATE "Cases" SET "Status" = {0} WHERE "Id" = {1}""", (int)EudrCaseStatus.Closed, ids.CaseId);
         await Problem(await Put(a, ids.CaseId, invalid), HttpStatusCode.Conflict);
     }
 
@@ -428,8 +428,8 @@ public sealed class CaseDossierTests(ApiFactory factory)
         Assert.Equal(11m, (await Json(await a.GetAsync($"/api/shipments/{ids.ShipmentId}"))).GetProperty("shipment").GetProperty("quantity").GetDecimal());
         Assert.Equal(11m, (await Dossier(a, ids.CaseId)).GetProperty("shipmentQuantity").GetDecimal());
         Assert.Equal("Draft", (await Json(await a.GetAsync($"/api/eudr-cases/{ids.CaseId}"))).GetProperty("status").GetString());
-        await Status(a.DeleteAsync($"/api/shipments/{ids.ShipmentId}"), HttpStatusCode.NoContent);
-        Assert.Equal("Archived", (await Json(await a.GetAsync($"/api/eudr-cases/{ids.CaseId}"))).GetProperty("status").GetString());
+        await Status(a.DeleteAsync($"/api/shipments/{ids.ShipmentId}"), HttpStatusCode.MethodNotAllowed); // The legacy shipment archive route is gone; archive moves to the case lifecycle (Slice 2).
+        Assert.Equal("Draft", (await Json(await a.GetAsync($"/api/eudr-cases/{ids.CaseId}"))).GetProperty("status").GetString());
     }
 
     // ---- M. lifecycle -------------------------------------------------------------------------------------------------------------------
@@ -443,16 +443,16 @@ public sealed class CaseDossierTests(ApiFactory factory)
         Assert.Equal(before.GetProperty("status").GetString(), after.GetProperty("status").GetString());
         Assert.Equal(before.GetProperty("requirements").GetRawText(), after.GetProperty("requirements").GetRawText());
         Assert.All(after.GetProperty("requirements").EnumerateArray(), r => Assert.Equal("Missing", r.GetProperty("status").GetString()));
-        await Problem(await a.PostAsync($"/api/eudr-cases/{ids.CaseId}/complete", null), HttpStatusCode.Conflict);
 
-        foreach (var status in new[] { EudrCaseStatus.Completed, EudrCaseStatus.Archived })
+        // Closed (workflow status) and archived (independent of the status) cases are both read-only; archive leaves the status untouched.
+        foreach (var archived in new[] { false, true })
         {
-            await using (var scope = factory.Services.CreateAsyncScope())
-                await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.ExecuteSqlRawAsync("""UPDATE "Cases" SET "Status" = {0} WHERE "Id" = {1}""", (int)status, ids.CaseId);
+            if (archived) { await LifecycleTestSupport.SetStatus(factory.Services, ids.CaseId, EudrCaseStatus.Draft); await LifecycleTestSupport.Archive(factory.Services, ids.CaseId); }
+            else await LifecycleTestSupport.SetStatus(factory.Services, ids.CaseId, EudrCaseStatus.Closed);
             await Problem(await Put(a, ids.CaseId, Lot(Unique("LOT"), 12, Single(s, 12))), HttpStatusCode.Conflict);
             Assert.Equal(1, LotNumber(await Dossier(a, ids.CaseId))); Assert.Equal(1, (await History(a, ids.CaseId)).GetArrayLength());
             Assert.Equal(HttpStatusCode.OK, (await a.GetAsync($"/api/eudr-cases/{ids.CaseId}/export")).StatusCode);
-            Assert.Equal(status.ToString(), (await Json(await a.GetAsync($"/api/eudr-cases/{ids.CaseId}"))).GetProperty("status").GetString());
+            Assert.Equal(archived ? "Draft" : "Closed", (await Json(await a.GetAsync($"/api/eudr-cases/{ids.CaseId}"))).GetProperty("status").GetString()); // archive never changes the workflow status
         }
     }
 

@@ -13,7 +13,7 @@ public sealed class SupplierRequestService(AppDbContext db, TenantContext tenant
     public async Task<RequestLink> Create(Guid caseId, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var c = await cases.Lock(caseId, ct); CaseService.EnsureEditable(c);
+        var c = await cases.Lock(caseId, ct); await cases.EnsureMutable(c, ct);
         if (await db.SupplierRequests.AnyAsync(x => x.EudrCaseId == caseId && x.RevokedAtUtc == null, ct))
             throw ApiException.Conflict("A request already exists. Regenerate or revoke it first.");
         var shipment = await db.Shipments.SingleAsync(x => x.Id == c.ShipmentId, ct);
@@ -33,7 +33,7 @@ public sealed class SupplierRequestService(AppDbContext db, TenantContext tenant
     public async Task<RequestLink> Regenerate(Guid id, CancellationToken ct)
     {
         var r = await db.SupplierRequests.SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw ApiException.NotFound();
-        await using var tx = await db.Database.BeginTransactionAsync(ct); var c = await cases.Lock(r.EudrCaseId, ct); CaseService.EnsureEditable(c);
+        await using var tx = await db.Database.BeginTransactionAsync(ct); var c = await cases.Lock(r.EudrCaseId, ct); await cases.EnsureMutable(c, ct);
         await db.Entry(r).ReloadAsync(ct);
         var other = await db.SupplierRequests.AnyAsync(x => x.EudrCaseId == c.Id && x.Id != id && x.RevokedAtUtc == null, ct);
         if (other) throw ApiException.Conflict("A newer request already exists.");
@@ -55,7 +55,7 @@ public sealed class SupplierRequestService(AppDbContext db, TenantContext tenant
     // Recheck after locking: a concurrent revoke/regenerate/expiry must invalidate a waiting request.
     public async Task<(SupplierRequest Request, EudrCase Case)> LockPublic(string token, CancellationToken ct)
     {
-        var resolved = await Resolve(token, ct); var c = await cases.Lock(resolved.EudrCaseId, ct); CaseService.EnsureEditable(c);
+        var resolved = await Resolve(token, ct); var c = await cases.Lock(resolved.EudrCaseId, ct); await cases.EnsureMutable(c, ct);
         var r = await db.SupplierRequests.SingleAsync(x => x.Id == resolved.Id, ct);
         if (r.TokenHash != tokens.Hash(token) || r.RevokedAtUtc != null || r.ExpiresAtUtc <= DateTimeOffset.UtcNow) throw ApiException.NotFound();
         return (r, c);

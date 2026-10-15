@@ -38,6 +38,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
     public DbSet<CaseRevisionDocument> CaseRevisionDocuments => Set<CaseRevisionDocument>();
     public DbSet<CaseRevisionEvidenceLink> CaseRevisionEvidenceLinks => Set<CaseRevisionEvidenceLink>();
     public DbSet<ReviewRecord> ReviewRecords => Set<ReviewRecord>();
+    public DbSet<CaseClosure> CaseClosures => Set<CaseClosure>();
+    public DbSet<CaseReopening> CaseReopenings => Set<CaseReopening>();
+    public DbSet<CaseArchival> CaseArchivals => Set<CaseArchival>();
     protected override void OnModelCreating(ModelBuilder b)
     {
         base.OnModelCreating(b);
@@ -58,6 +61,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         ConfigureTenant<OperatorProfile>(b); ConfigureTenant<CaseMasterDataVersion>(b); ConfigureTenant<CaseApplicability>(b);
         ConfigureTenant<CaseRecipientStatement>(b); ConfigureTenant<CaseRecipient>(b); ConfigureTenant<CaseEvidenceLink>(b);
         ConfigureTenant<CaseRevision>(b); ConfigureTenant<CaseRevisionDocument>(b); ConfigureTenant<CaseRevisionEvidenceLink>(b); ConfigureTenant<ReviewRecord>(b);
+        ConfigureTenant<CaseClosure>(b); ConfigureTenant<CaseReopening>(b); ConfigureTenant<CaseArchival>(b);
         b.Entity<Supplier>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Product>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Shipment>().HasIndex(x => new { x.OrganizationId, x.ReferenceNumber }).IsUnique();
@@ -217,6 +221,23 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         b.Entity<ReviewRecord>().HasIndex(x => new { x.EudrCaseId, x.ReviewedAtUtc }); // History ordering aid only: deliberately NOT unique (two reviews may share a timestamp).
         b.Entity<ReviewRecord>().Property(x => x.Rationale).HasMaxLength(4000);
         b.Entity<ReviewRecord>().Property(x => x.PolicyVersion).HasMaxLength(50);
+
+        // Case lifecycle v2: immutable closure and reopening history plus an independent archive history. A closure is backed by exactly one review of the SAME case.
+        // The review alternate key lets a closure prove in the database that its review belongs to the closure's own case and organization.
+        CaseForeignKey<CaseClosure>(b); CaseForeignKey<CaseReopening>(b); CaseForeignKey<CaseArchival>(b);
+        b.Entity<ReviewRecord>().HasAlternateKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id });
+        b.Entity<CaseClosure>().HasAlternateKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id });
+        b.Entity<CaseClosure>().HasIndex(x => new { x.EudrCaseId, x.Number }).IsUnique(); // The sequencing invariant: the current closure is the highest Number.
+        b.Entity<CaseClosure>().HasIndex(x => x.ReviewRecordId).IsUnique(); // One review backs at most one closure.
+        b.Entity<CaseClosure>().HasOne<ReviewRecord>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.ReviewRecordId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CaseClosure>().Property(x => x.ExternalDdsReference).HasMaxLength(200);
+        b.Entity<CaseReopening>().HasOne<CaseClosure>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.CaseClosureId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<CaseReopening>().HasIndex(x => x.CaseClosureId).IsUnique(); // A closure is reopened at most once.
+        b.Entity<CaseReopening>().Property(x => x.Reason).HasMaxLength(4000);
+        b.Entity<CaseArchival>().HasIndex(x => new { x.EudrCaseId, x.Number }).IsUnique();
+        b.Entity<CaseArchival>().HasIndex(x => x.EudrCaseId).IsUnique().HasFilter("\"UnarchivedAtUtc\" IS NULL"); // At most one current archive period per case.
+        b.Entity<CaseArchival>().Property(x => x.Reason).HasMaxLength(4000);
+        b.Entity<CaseArchival>().Property(x => x.UnarchiveReason).HasMaxLength(4000);
         foreach (var type in b.Model.GetEntityTypes())
         foreach (var property in type.GetProperties().Where(p => p.ClrType == typeof(string) && p.GetMaxLength() == null && p.GetColumnType() != "jsonb"))
             property.SetMaxLength(4000);
@@ -246,6 +267,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         [typeof(CaseApplicability)] = (nameof(CaseApplicability.SupersededAtUtc), []),
         [typeof(CaseRecipientStatement)] = (nameof(CaseRecipientStatement.SupersededAtUtc), []),
         [typeof(CaseEvidenceLink)] = (nameof(CaseEvidenceLink.WithdrawnAtUtc), [nameof(CaseEvidenceLink.WithdrawnByUserId)]),
+        [typeof(CaseArchival)] = (nameof(CaseArchival.UnarchivedAtUtc), [nameof(CaseArchival.UnarchivedByUserId), nameof(CaseArchival.UnarchiveReason)]),
     };
     private static void EnforceRetainedEvidence(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Entity> entry)
     {
@@ -287,13 +309,21 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
     {
         if (entry.State is EntityState.Modified or EntityState.Deleted) throw new InvalidOperationException("Review history is immutable; record a new review.");
     }
+    // Closures and reopenings are fully immutable and never deleted: closing again is a new CaseClosure, reopening is a new CaseReopening. Archive periods are
+    // governed by the retirement map above (one-way unarchive only). Application-level only, like the guards above: other save overloads, bulk writes and raw SQL
+    // bypass it (the unique indexes and Restrict foreign keys are the database backstop).
+    private static void EnforceLifecycleHistoryImmutable(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Entity> entry)
+    {
+        if (entry.State is EntityState.Modified or EntityState.Deleted) throw new InvalidOperationException("Case lifecycle history is immutable; record a new closure or reopening.");
+    }
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         foreach (var entry in ChangeTracker.Entries<Entity>())
         {
             if (entry.Entity is AuditEvent && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Audit events are append-only.");
-            if (entry.Entity is CaseDocument or GeoSubmission or SupplierSubmission or PlotRevision or CaseLot or CaseMasterDataVersion or CaseApplicability or CaseRecipientStatement or CaseEvidenceLink) EnforceRetainedEvidence(entry);
+            if (entry.Entity is CaseDocument or GeoSubmission or SupplierSubmission or PlotRevision or CaseLot or CaseMasterDataVersion or CaseApplicability or CaseRecipientStatement or CaseEvidenceLink or CaseArchival) EnforceRetainedEvidence(entry);
+            if (entry.Entity is CaseClosure or CaseReopening) EnforceLifecycleHistoryImmutable(entry);
             if (entry.Entity is CaseRecipient or OperatorProfile) EnforceCompletenessFacts(entry);
             if (entry.Entity is CaseRevision or CaseRevisionDocument or CaseRevisionEvidenceLink or ReviewRecord) EnforceReviewHistoryImmutable(entry);
             if (entry.Entity is Producer or ProductionPlot) EnforceProvenanceIdentity(entry);

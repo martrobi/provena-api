@@ -8,7 +8,6 @@ public sealed record ProductInput(string Name, string? ExternalReference, string
 public sealed record ShipmentInput(string ReferenceNumber, Guid SupplierId, Guid ProductId, decimal Quantity, QuantityUnit Unit, string? OriginCountryCode, DateOnly? ExpectedArrivalDate, DateOnly? ReceivedDate, string? Notes);
 public sealed record SubmissionInput(string? CountryOfProductionCode, DateOnly? ProductionPeriodFrom, DateOnly? ProductionPeriodTo, decimal? ConfirmedQuantity, string? Notes);
 public sealed record ReviewInput(RequirementStatus Status, string? ReviewerNote);
-public sealed record CompleteInput(string? ExternalDdsReference);
 public sealed record PageResult<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount);
 public sealed record TokenResponse(string AccessToken, DateTimeOffset ExpiresAtUtc);
 public sealed record RequestLink(Guid RequestId, string PublicUrl, DateTimeOffset ExpiresAtUtc);
@@ -22,8 +21,8 @@ public sealed record EvidenceHistory(List<DocumentDto> Documents, List<GeoDto> G
 public sealed record SupplierRequestDto(Guid Id, string Status, DateTimeOffset ExpiresAtUtc, DateTimeOffset? SentAtUtc, DateTimeOffset? OpenedAtUtc, DateTimeOffset? CompletedAtUtc, DateTimeOffset? RevokedAtUtc);
 public sealed record CaseDetails(Guid Id, EudrCaseStatus Status, Shipment Shipment, Supplier Supplier, Product Product,
     SupplierSubmission? SupplierSubmission, List<EudrRequirement> Requirements, List<DocumentDto> Documents,
-    GeoDto? Geolocation, SupplierRequestDto? SupplierRequest, List<AuditEvent> AuditEvents, string? ExternalDdsReference,
-    DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, DateTimeOffset? CompletedAtUtc);
+    GeoDto? Geolocation, SupplierRequestDto? SupplierRequest, List<AuditEvent> AuditEvents,
+    DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc);
 public sealed record ProducerInput(string Name, string? ExternalReference, string? CountryCode, string? Notes, bool? IsActive = null);
 public sealed record ProductionPlotInput(Guid ProducerId, string Name, string? ExternalReference, string? Notes, PlotRevisionInput InitialRevision);
 public sealed record ProductionPlotUpdateInput(string Name, string? ExternalReference, string? Notes, bool? IsActive = null);

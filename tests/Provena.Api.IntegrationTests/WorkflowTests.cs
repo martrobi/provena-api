@@ -46,7 +46,6 @@ public sealed class WorkflowTests(ApiFactory factory)
         foreach (var path in new[] { $"/api/suppliers/{ids.Supplier}", $"/api/eudr-cases/{ids.Case}", $"/api/eudr-cases/{ids.Case}/export", $"/api/shipments/{ids.Shipment}" })
             Assert.Equal(HttpStatusCode.NotFound, (await b.GetAsync(path)).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await b.PostAsJsonAsync("/api/shipments", new { referenceNumber = "X", supplierId = ids.Supplier, productId = ids.Product, quantity = 1, unit = "Kg" })).StatusCode);
-        Assert.Equal(HttpStatusCode.Conflict, (await a.PostAsJsonAsync($"/api/eudr-cases/{ids.Case}/complete", new { })).StatusCode);
         var link = await Json(await a.PostAsync($"/api/eudr-cases/{ids.Case}/supplier-request", null));
         var requestId = link.GetProperty("requestId").GetGuid(); var token = new Uri(link.GetProperty("publicUrl").GetString()!).Segments.Last();
         await using (var scope = factory.Services.CreateAsyncScope())
@@ -79,8 +78,8 @@ public sealed class WorkflowTests(ApiFactory factory)
         var zipResponse = await a.GetAsync($"/api/eudr-cases/{ids.Case}/export"); Assert.Equal(HttpStatusCode.OK, zipResponse.StatusCode);
         using var zip = new ZipArchive(new MemoryStream(await zipResponse.Content.ReadAsByteArrayAsync()));
         Assert.Contains(zip.Entries, e => e.FullName.EndsWith("manifest.json")); Assert.Contains(zip.Entries, e => e.FullName.EndsWith("summary.csv")); Assert.Contains(zip.Entries, e => e.FullName.Contains("documents/") && e.FullName.EndsWith("declaration.txt")); Assert.Contains(zip.Entries, e => e.FullName.EndsWith("geolocation/original.geojson"));
-        Assert.Equal(HttpStatusCode.NoContent, (await a.PostAsJsonAsync($"/api/eudr-cases/{ids.Case}/complete", new { externalDdsReference = "ABC-123456" })).StatusCode);
-        Assert.Equal("Completed", (await Json(await a.GetAsync($"/api/eudr-cases/{ids.Case}"))).GetProperty("status").GetString());
+        await LifecycleTestSupport.SetStatus(factory.Services, ids.Case, Provena.Api.Domain.EudrCaseStatus.Closed); // Closing arrives with the lifecycle routes (Slice 2); a Closed case must reject public writes meanwhile.
+        Assert.Equal("Closed", (await Json(await a.GetAsync($"/api/eudr-cases/{ids.Case}"))).GetProperty("status").GetString());
         Assert.Equal(HttpStatusCode.Conflict, (await publicClient.PutAsJsonAsync(pathBase + "/details", new { countryOfProductionCode = "BR" })).StatusCode);
     }
     [Fact]

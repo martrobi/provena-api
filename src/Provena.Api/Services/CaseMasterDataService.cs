@@ -28,7 +28,7 @@ public sealed class CaseMasterDataService(AppDbContext db, TenantContext tenant,
     public async Task<CaseMasterDataDto> Refresh(Guid caseId, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var c = await cases.Lock(caseId, ct); CaseService.EnsureEditable(c);
+        var c = await cases.Lock(caseId, ct); await cases.EnsureMutable(c, ct);
         // The shipment is read under the case lock (shipment edits take the same lock), then the live sources are locked in a fixed order
         // (profile, supplier, product) FOR SHARE so a concurrent catalogue edit waits for this transaction or is already visible.
         var shipment = await db.Shipments.AsNoTracking().SingleAsync(x => x.Id == c.ShipmentId, ct);

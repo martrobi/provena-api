@@ -432,14 +432,10 @@ public sealed class CompletenessReadModelTests(ApiFactory factory)
         var after = await Json(await c.GetAsync($"/api/eudr-cases/{w.CaseId}"));
         Assert.Equal(before.GetProperty("status").GetString(), after.GetProperty("status").GetString()); Assert.Equal(before.GetProperty("requirements").GetRawText(), after.GetProperty("requirements").GetRawText());
         Assert.Equal(before.GetProperty("updatedAtUtc").GetDateTimeOffset(), after.GetProperty("updatedAtUtc").GetDateTimeOffset()); Assert.Equal(audits, await AuditCount(org, w.CaseId));
-        // Completeness is separate from the operational status: Complete keeps its own rules whatever completeness says.
-        var status = after.GetProperty("status").GetString();
-        var complete = await c.PostAsJsonAsync($"/api/eudr-cases/{w.CaseId}/complete", new { externalDdsReference = (string?)null });
-        Assert.Equal(status == "ReadyForExport" ? HttpStatusCode.NoContent : HttpStatusCode.Conflict, complete.StatusCode);
     }
 
     [Fact]
-    public async Task A_case_that_is_ready_for_export_and_completed_can_still_report_incomplete_data()
+    public async Task A_case_that_is_ready_for_export_and_closed_can_still_report_incomplete_data()
     {
         var (c, org) = await Tenant(); var w = await Build(c, org, new Opt(Profile: false, Recipients: false));
         await Ok(c.PostAsync($"/api/eudr-cases/{w.CaseId}/supplier-request", null));
@@ -447,11 +443,11 @@ public sealed class CompletenessReadModelTests(ApiFactory factory)
         // Operationally the six requirements are decided; the completeness axes say otherwise about the data. Both facts coexist.
         var result = await Completeness(c, w.CaseId);
         Assert.Equal("Incomplete", result.GetProperty("dataCoverage").GetString()); Assert.Equal("None", result.GetProperty("reviewFreshness").GetString());
-        Assert.NotEqual("Completed", detail.GetProperty("status").GetString());
+        Assert.NotEqual("Closed", detail.GetProperty("status").GetString());
         Assert.Equal("ReadyForExport", detail.GetProperty("status").GetString());
         if (detail.GetProperty("status").GetString() == "ReadyForExport")
         {
-            Assert.Equal(HttpStatusCode.NoContent, (await c.PostAsJsonAsync($"/api/eudr-cases/{w.CaseId}/complete", new { externalDdsReference = (string?)null })).StatusCode);
+            await LifecycleTestSupport.SetStatus(factory.Services, w.CaseId, Provena.Api.Domain.EudrCaseStatus.Closed); // closing arrives with the lifecycle routes (Slice 2); completeness is independent of the status
             var closed = await Completeness(c, w.CaseId);
             Assert.Equal("Incomplete", closed.GetProperty("dataCoverage").GetString());
             await Ok(c.PutAsJsonAsync("/api/suppliers/" + w.SupplierId, new { name = "Edited after closure", countryCode = "BR" }));

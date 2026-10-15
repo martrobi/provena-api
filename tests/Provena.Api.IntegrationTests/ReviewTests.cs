@@ -131,7 +131,7 @@ public sealed class ReviewTests(ApiFactory factory)
         var o = await NewOwner(); var w = await Build(o.Client, o.Org, new Opt(Lot: false, Documents: false));
         var review = await Reviewed(o.Client, w.CaseId);
         var fp = Fingerprint(await Completeness(o.Client, w.CaseId));
-        Assert.Equal(HttpStatusCode.NoContent, (await o.Client.DeleteAsync($"/api/shipments/{w.ShipmentId}")).StatusCode); // archive
+        await LifecycleTestSupport.Archive(factory.Services, w.CaseId); // archive is independent of the workflow status and read-only
         await Problem(await Post(o.Client, w.CaseId, Body("ReturnedForCorrection", fp, review.GetProperty("reviewId").GetGuid())), HttpStatusCode.Conflict);
         await Problem(await Post(o.Client, w.CaseId, Body("ReturnedForCorrection", fp, rationale: "")), HttpStatusCode.Conflict); // 409 before the body is examined
         Assert.Equal(1, await Revisions(o.Org, w.CaseId));
@@ -582,7 +582,7 @@ public sealed class ReviewTests(ApiFactory factory)
     }
 
     [Fact]
-    public async Task A_policy_version_difference_is_informational_and_a_completed_case_keeps_a_current_review_current()
+    public async Task A_policy_version_difference_is_informational_and_a_closed_case_keeps_a_current_review_current()
     {
         var o = await NewOwner(); var w = await Build(o.Client, o.Org); var c = o.Client;
         await Ok(c.PostAsync($"/api/eudr-cases/{w.CaseId}/supplier-request", null)); // the request puts the case into ReadyForExport
@@ -597,7 +597,7 @@ public sealed class ReviewTests(ApiFactory factory)
         Assert.Equal("Current", changed.GetProperty("reviewFreshness").GetString()); Assert.True(changed.GetProperty("latestReview").GetProperty("policyChanged").GetBoolean()); Assert.Equal("0", changed.GetProperty("latestReview").GetProperty("policyVersion").GetString());
 
         Assert.Equal("ReadyForExport", (await Json(await c.GetAsync($"/api/eudr-cases/{w.CaseId}"))).GetProperty("status").GetString());
-        Assert.Equal(HttpStatusCode.NoContent, (await c.PostAsJsonAsync($"/api/eudr-cases/{w.CaseId}/complete", new { externalDdsReference = (string?)null })).StatusCode); // Complete is not gated by the review
+        await LifecycleTestSupport.SetStatus(factory.Services, w.CaseId, Provena.Api.Domain.EudrCaseStatus.Closed); // Closing arrives with the lifecycle routes (Slice 2); the review must stay Current on a Closed case.
         await Ok(c.PutAsJsonAsync($"/api/suppliers/{w.SupplierId}", new { name = "Edited after closure", countryCode = "BR" }));
         await Ok(c.PutAsJsonAsync($"/api/producers/{w.ProducerId}", new { name = "Renamed after closure", countryCode = "BR", isActive = true }));
         await Ok(c.PostAsync($"/api/production-plots/{w.PlotId}/revisions", Raw($$"""{"countryCode":"BR","geometry":{{Bigger}},"areaHectares":null,"note":null}""")), HttpStatusCode.Created);

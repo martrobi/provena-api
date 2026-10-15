@@ -25,7 +25,7 @@ public sealed class ShipmentService(AppDbContext db, TenantContext tenant, IVali
         if (id.HasValue)
         {
             var caseId = await db.Cases.Where(x => x.ShipmentId == id).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct) ?? throw ApiException.NotFound();
-            c = await cases.Lock(caseId, ct); CaseService.EnsureEditable(c);
+            c = await cases.Lock(caseId, ct); await cases.EnsureMutable(c, ct);
             if (await db.SupplierRequests.AnyAsync(x => x.EudrCaseId == c.Id, ct) || await db.CaseDossiers.AnyAsync(x => x.EudrCaseId == c.Id, ct) || await db.Requirements.AnyAsync(x => x.EudrCaseId == c.Id && x.Status != RequirementStatus.Missing && x.Status != RequirementStatus.NotRequired, ct)) throw ApiException.Conflict("Shipment cannot be edited after a supplier request, evidence submission or case dossier lot. Archive and create a new shipment to preserve reviewed evidence.");
             shipment = await db.Shipments.SingleAsync(x => x.Id == id, ct);
         }
@@ -43,13 +43,5 @@ public sealed class ShipmentService(AppDbContext db, TenantContext tenant, IVali
         shipment.ExpectedArrivalDate = input.ExpectedArrivalDate; shipment.ReceivedDate = input.ReceivedDate; shipment.Notes = input.Notes;
         if (id.HasValue) audit.Add(c.Id, "ShipmentUpdated", "Shipment details updated.");
         await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); return new { shipment, eudrCaseId = c.Id };
-    }
-    public async Task Archive(Guid shipmentId, CancellationToken ct)
-    {
-        var caseId = await db.Cases.Where(x => x.ShipmentId == shipmentId).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct) ?? throw ApiException.NotFound();
-        await using var tx = await db.Database.BeginTransactionAsync(ct); var c = await cases.Lock(caseId, ct);
-        c.Status = EudrCaseStatus.Archived;
-        foreach (var r in await db.SupplierRequests.Where(x => x.EudrCaseId == c.Id && x.RevokedAtUtc == null).ToListAsync(ct)) r.RevokedAtUtc = DateTimeOffset.UtcNow;
-        audit.Add(c.Id, "CaseArchived", "Shipment and case archived; evidence retained."); await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
     }
 }

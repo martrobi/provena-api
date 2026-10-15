@@ -24,7 +24,7 @@ public sealed class CaseEvidenceLinkService(AppDbContext db, TenantContext tenan
     public async Task<CaseEvidenceLinkDto> Create(Guid caseId, CaseEvidenceLinkInput input, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var c = await cases.Lock(caseId, ct); CaseService.EnsureEditable(c);
+        var c = await cases.Lock(caseId, ct); await cases.EnsureMutable(c, ct);
         await validator.ValidateAndThrowAsync(input with { Note = string.IsNullOrWhiteSpace(input.Note) ? null : input.Note.Trim() }, ct);
         // Unknown, foreign and other-case documents are indistinguishable (400, non-disclosing).
         var document = await db.Documents.SingleOrDefaultAsync(x => x.Id == input.CaseDocumentId && x.EudrCaseId == caseId, ct) ?? throw new ApiException(400, "Document was not found for this case.");
@@ -45,7 +45,7 @@ public sealed class CaseEvidenceLinkService(AppDbContext db, TenantContext tenan
     public async Task Withdraw(Guid caseId, Guid linkId, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var c = await cases.Lock(caseId, ct); CaseService.EnsureEditable(c);
+        var c = await cases.Lock(caseId, ct); await cases.EnsureMutable(c, ct);
         var link = await db.CaseEvidenceLinks.SingleOrDefaultAsync(x => x.Id == linkId && x.EudrCaseId == caseId, ct) ?? throw ApiException.NotFound();
         if (link.WithdrawnAtUtc != null) { await tx.CommitAsync(ct); return; }
         var now = DateTimeOffset.UtcNow;

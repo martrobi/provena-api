@@ -136,11 +136,11 @@ public sealed class RetainedEvidenceTests(ApiFactory factory)
     }
 
     [Fact]
-    public async Task Document_withdrawal_is_blocked_on_completed_cases()
+    public async Task Document_withdrawal_is_blocked_on_closed_cases()
     {
         var a = await Shared(); var caseId = await SetupCase(a);
         var d1 = await UploadDocument(a, caseId, "one.txt", "first");
-        await using (var scope = factory.Services.CreateAsyncScope()) { await using var db = await TenantDb(scope, caseId); await SetStatus(db, caseId, EudrCaseStatus.Completed); }
+        await using (var scope = factory.Services.CreateAsyncScope()) { await using var db = await TenantDb(scope, caseId); await SetStatus(db, caseId, EudrCaseStatus.Closed); }
 
         Assert.Equal(HttpStatusCode.Conflict, (await a.DeleteAsync($"/api/eudr-cases/{caseId}/documents/{d1}")).StatusCode);
         Assert.Null((await Rows(caseId)).Docs.Single().WithdrawnAtUtc);

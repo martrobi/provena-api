@@ -5,15 +5,18 @@ namespace Provena.Api.Services;
 public sealed class EudrCaseStatusService(AppDbContext db, AuditService audit)
 {
     // Rule order is intentional: unsent request -> Draft; missing required -> Waiting; review -> ReviewNeeded.
-    public static EudrCaseStatus Calculate(EudrCaseStatus current, bool requestSent, IReadOnlyCollection<EudrRequirement> requirements)
+    // Pure derivation of the OPEN workflow status from requests and requirements. It never returns Closed: closing is an explicit Owner-backed CaseClosure.
+    public static EudrCaseStatus CalculateOpen(bool requestSent, IReadOnlyCollection<EudrRequirement> requirements)
     {
-        if (current is EudrCaseStatus.Completed or EudrCaseStatus.Archived) return current;
         if (!requestSent) return EudrCaseStatus.Draft;
         if (requirements.Any(x => x.IsRequired && x.Status == RequirementStatus.Missing)) return EudrCaseStatus.WaitingForSupplier;
         if (requirements.Any(x => x.Status is RequirementStatus.Submitted or RequirementStatus.Rejected)) return EudrCaseStatus.ReviewNeeded;
         return requirements.Where(x => x.IsRequired).All(x => x.Status is RequirementStatus.Accepted or RequirementStatus.NotRequired)
             ? EudrCaseStatus.ReadyForExport : EudrCaseStatus.WaitingForSupplier;
     }
+    // A Closed case keeps its status until it is explicitly reopened; archive does not appear here because it is independent of the workflow status.
+    public static EudrCaseStatus Calculate(EudrCaseStatus current, bool requestSent, IReadOnlyCollection<EudrRequirement> requirements)
+        => current == EudrCaseStatus.Closed ? current : CalculateOpen(requestSent, requirements);
     public async Task Recalculate(EudrCase c, CancellationToken ct)
     {
         var requirements = await db.Requirements.Where(x => x.EudrCaseId == c.Id).ToListAsync(ct);

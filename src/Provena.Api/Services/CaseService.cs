@@ -7,14 +7,18 @@ using Provena.Api.Data;
 using Provena.Api.Domain;
 namespace Provena.Api.Services;
 public sealed class CaseService(AppDbContext db, TenantContext tenant, EudrCaseStatusService statuses, AuditService audit,
-    IValidator<ReviewInput> reviewValidator, IValidator<CompleteInput> completeValidator)
+    IValidator<ReviewInput> reviewValidator)
 {
     // Must be called inside a transaction. Serializes mutations and gives export a coherent snapshot.
     public async Task<EudrCase> Lock(Guid id, CancellationToken ct) => await db.Cases
         .FromSqlInterpolated($"SELECT * FROM \"Cases\" WHERE \"Id\" = {id} AND \"OrganizationId\" = {tenant.OrganizationId} FOR UPDATE")
         .SingleOrDefaultAsync(ct) ?? throw ApiException.NotFound();
-    public static void EnsureEditable(EudrCase c)
-    { if (c.Status is EudrCaseStatus.Completed or EudrCaseStatus.Archived) throw ApiException.Conflict("Completed or archived cases cannot be changed."); }
+    // A closed case is read-only until explicitly reopened; an archived case (independent of its workflow status) is read-only until unarchived. Call under the case lock.
+    public async Task EnsureMutable(EudrCase c, CancellationToken ct)
+    {
+        if (c.Status == EudrCaseStatus.Closed) throw ApiException.Conflict("Closed cases cannot be changed; reopen the case first.");
+        if (await db.CaseArchivals.Current().AnyAsync(x => x.EudrCaseId == c.Id, ct)) throw ApiException.Conflict("Archived cases cannot be changed; unarchive the case first.");
+    }
     public async Task<CaseDetails> Details(Guid id, CancellationToken ct)
     {
         var c = await db.Cases.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw ApiException.NotFound();
@@ -27,7 +31,7 @@ public sealed class CaseService(AppDbContext db, TenantContext tenant, EudrCaseS
         var geo = await db.Geolocations.AsNoTracking().Current().SingleOrDefaultAsync(x => x.EudrCaseId == id, ct);
         var request = await db.SupplierRequests.AsNoTracking().Where(x => x.EudrCaseId == id).OrderByDescending(x => x.CreatedAtUtc).FirstOrDefaultAsync(ct);
         var events = await db.AuditEvents.AsNoTracking().Where(x => x.EudrCaseId == id).OrderByDescending(x => x.CreatedAtUtc).ToListAsync(ct);
-        return new(c.Id, c.Status, shipment, supplier, product, submission, requirements, docs.Select(x => x.ToDto()).ToList(), geo?.ToDto(), request?.ToDto(), events, c.ExternalDdsReference, c.CreatedAtUtc, c.UpdatedAtUtc, c.CompletedAtUtc);
+        return new(c.Id, c.Status, shipment, supplier, product, submission, requirements, docs.Select(x => x.ToDto()).ToList(), geo?.ToDto(), request?.ToDto(), events, c.CreatedAtUtc, c.UpdatedAtUtc);
     }
     public async Task<PageResult<CaseListItem>> List(EudrCaseStatus? status, Guid? supplierId, Guid? productId, string? search, int page, int pageSize, CancellationToken ct)
     {
@@ -46,7 +50,7 @@ public sealed class CaseService(AppDbContext db, TenantContext tenant, EudrCaseS
     {
         await reviewValidator.ValidateAndThrowAsync(input, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var c = await Lock(caseId, ct); EnsureEditable(c);
+        var c = await Lock(caseId, ct); await EnsureMutable(c, ct);
         var r = await db.Requirements.SingleOrDefaultAsync(x => x.Id == requirementId && x.EudrCaseId == caseId, ct) ?? throw ApiException.NotFound();
         if (input.Status != RequirementStatus.NotRequired && r.Status != RequirementStatus.Submitted)
             throw ApiException.Conflict("Only submitted evidence may be accepted or rejected.");
@@ -54,19 +58,11 @@ public sealed class CaseService(AppDbContext db, TenantContext tenant, EudrCaseS
         audit.Add(c.Id, input.Status == RequirementStatus.Accepted ? "RequirementAccepted" : input.Status == RequirementStatus.Rejected ? "RequirementRejected" : "RequirementMarkedNotRequired", $"{r.Type}: {r.Status}.");
         await statuses.Recalculate(c, ct); await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
     }
-    public async Task Complete(Guid id, CompleteInput input, CancellationToken ct)
-    {
-        await completeValidator.ValidateAndThrowAsync(input, ct);
-        await using var tx = await db.Database.BeginTransactionAsync(ct); var c = await Lock(id, ct);
-        await statuses.Recalculate(c, ct);
-        if (c.Status != EudrCaseStatus.ReadyForExport) throw ApiException.Conflict("Only ReadyForExport cases can be completed.");
-        c.Status = EudrCaseStatus.Completed; c.CompletedAtUtc = DateTimeOffset.UtcNow; c.ExternalDdsReference = input.ExternalDdsReference;
-        audit.Add(id, "CaseCompleted", "External DDS workflow marked complete."); await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
-    }
     public async Task<object> Dashboard(CancellationToken ct)
     {
-        var counts = await db.Cases.GroupBy(x => x.Status).Select(x => new { Status = x.Key, Count = x.Count() }).ToDictionaryAsync(x => x.Status, x => x.Count, ct);
+        // Legacy dashboard shape until the lifecycle dashboard (Slice 2): archived cases are no longer a status, so they are excluded explicitly.
+        var counts = await db.Cases.Where(x => !db.CaseArchivals.Any(a => a.EudrCaseId == x.Id && a.UnarchivedAtUtc == null)).GroupBy(x => x.Status).Select(x => new { Status = x.Key, Count = x.Count() }).ToDictionaryAsync(x => x.Status, x => x.Count, ct);
         int Count(EudrCaseStatus status) => counts.GetValueOrDefault(status);
-        return new { totalOpenCases = counts.Where(x => x.Key is not (EudrCaseStatus.Completed or EudrCaseStatus.Archived)).Sum(x => x.Value), draft = Count(EudrCaseStatus.Draft), waitingForSupplier = Count(EudrCaseStatus.WaitingForSupplier), reviewNeeded = Count(EudrCaseStatus.ReviewNeeded), readyForExport = Count(EudrCaseStatus.ReadyForExport) };
+        return new { totalOpenCases = counts.Where(x => x.Key != EudrCaseStatus.Closed).Sum(x => x.Value), draft = Count(EudrCaseStatus.Draft), waitingForSupplier = Count(EudrCaseStatus.WaitingForSupplier), reviewNeeded = Count(EudrCaseStatus.ReviewNeeded), readyForExport = Count(EudrCaseStatus.ReadyForExport) };
     }
 }

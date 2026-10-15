@@ -410,7 +410,7 @@ INSERT INTO "CaseDossiers" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId",
         var seed = await SeedEvidenceAtInitialSchema(db);
         await db.Database.MigrateAsync();
         await InsertDossierGraph(db, seed);
-        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "ContributionPlots", "LotContributions", "CaseLots", "CaseDossiers" """);
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "ContributionPlots", "LotContributions", "CaseLots", "CaseDossiers" """);
 
         await db.GetService<IMigrator>().MigrateAsync(ProvenanceMigration);
 
@@ -509,7 +509,7 @@ INSERT INTO "CaseRecipients" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId
     }
     private static async Task ClearCompleteness(AppDbContext db)
     {
-        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "CaseRecipients", "CaseRecipientStatements", "CaseEvidenceLinks", "CaseApplicabilities", "CaseMasterDataVersions", "OperatorProfiles" """);
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "CaseRecipients", "CaseRecipientStatements", "CaseEvidenceLinks", "CaseApplicabilities", "CaseMasterDataVersions", "OperatorProfiles" """);
         await db.Database.ExecuteSqlRawAsync("""UPDATE "Suppliers" SET "PostalAddress" = NULL""");
     }
 
@@ -688,7 +688,7 @@ INSERT INTO "CaseRevisions" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId"
         await InsertDossierGraph(db, seed);
         await InsertCompletenessRow(db, seed, "CaseApplicabilities"); await InsertCompletenessRow(db, seed, "CaseMasterDataVersions");
         await InsertReviewRow(db, seed, "ReviewRecords");
-        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions" """);
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions" """);
 
         await db.GetService<IMigrator>().MigrateAsync(CompletenessMigration);
 
@@ -699,6 +699,208 @@ INSERT INTO "CaseRevisions" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId"
         Assert.Equal(3, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM pg_constraint WHERE conname IN ('AK_CaseDossiers_OrganizationId_Id','AK_CaseLots_OrganizationId_Id','AK_Documents_OrganizationId_EudrCaseId_Id')""").SingleAsync());
         Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM pg_indexes WHERE indexname = 'IX_CaseLots_OrganizationId_CaseDossierId'""").SingleAsync());
         foreach (var table in new[] { "CaseDossiers", "CaseLots", "CaseApplicabilities", "CaseMasterDataVersions", "Documents", "Geolocations", "Submissions" }) Assert.Equal(1, await Count(db, table));
+    }
+
+    // ---- Case lifecycle v2 (CaseLifecycleV2) ---------------------------------------------------------------------------------------------
+    private const string LifecycleMigration = "20261015014806_CaseLifecycleV2";
+    private static readonly string[] LifecycleTables = ["CaseClosures", "CaseReopenings", "CaseArchivals"];
+    private const string LegacyEvent = "LegacyCompletionInvalidatedByMigration";
+
+    [Fact]
+    public async Task Clean_database_has_lifecycle_tables_without_the_legacy_case_columns_and_with_unique_keys_indexes_and_restrict_foreign_keys()
+    {
+        await using var db = NewContext();
+        Assert.False(db.Database.HasPendingModelChanges(), "The generated snapshot must match the DbContext.");
+        await db.Database.MigrateAsync();
+        Assert.Contains(LifecycleMigration, await db.Database.GetAppliedMigrationsAsync());
+        var tables = await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_schema = 'public'").ToListAsync();
+        Assert.Subset(tables.ToHashSet(), LifecycleTables.ToHashSet());
+        var caseColumns = await db.Database.SqlQueryRaw<string>("SELECT column_name AS \"Value\" FROM information_schema.columns WHERE table_name = 'Cases'").ToListAsync();
+        Assert.DoesNotContain("CompletedAtUtc", caseColumns); Assert.DoesNotContain("ExternalDdsReference", caseColumns);
+        Assert.Subset(caseColumns.ToHashSet(), new HashSet<string> { "Status", "SupplierSubmissionCompletedAtUtc", "InternalReviewCompletedAtUtc", "InternalNotes" });
+        Assert.Equal(200, await db.Database.SqlQueryRaw<int>("SELECT character_maximum_length AS \"Value\" FROM information_schema.columns WHERE table_name = 'CaseClosures' AND column_name = 'ExternalDdsReference'").SingleAsync());
+        Assert.Equal("NO", await db.Database.SqlQueryRaw<string>("SELECT is_nullable AS \"Value\" FROM information_schema.columns WHERE table_name = 'CaseReopenings' AND column_name = 'Reason'").SingleAsync());
+        Assert.Equal("NO", await db.Database.SqlQueryRaw<string>("SELECT is_nullable AS \"Value\" FROM information_schema.columns WHERE table_name = 'CaseArchivals' AND column_name = 'Reason'").SingleAsync());
+        Assert.Equal("YES", await db.Database.SqlQueryRaw<string>("SELECT is_nullable AS \"Value\" FROM information_schema.columns WHERE table_name = 'CaseArchivals' AND column_name = 'ArchivedByUserId'").SingleAsync());
+
+        async Task<string> Index(string name) => await db.Database.SqlQueryRaw<string>("SELECT indexdef AS \"Value\" FROM pg_indexes WHERE indexname = {0}", name).SingleAsync();
+        var number = await Index("IX_CaseClosures_EudrCaseId_Number"); Assert.Contains("UNIQUE", number); Assert.Contains("(\"EudrCaseId\", \"Number\")", number);
+        Assert.Contains("UNIQUE", await Index("IX_CaseClosures_ReviewRecordId")); // one review backs at most one closure
+        Assert.Contains("UNIQUE", await Index("IX_CaseReopenings_CaseClosureId")); // a closure is reopened at most once
+        var current = await Index("IX_CaseArchivals_EudrCaseId"); Assert.Contains("UNIQUE", current); Assert.Contains("\"UnarchivedAtUtc\" IS NULL", current); // at most one current archive period
+        Assert.Contains("UNIQUE", await Index("IX_CaseArchivals_EudrCaseId_Number"));
+
+        var constraints = await db.Database.SqlQueryRaw<string>("""
+            SELECT conrelid::regclass::text || ' ' || contype::text || ' ' || conname || ' ' || pg_get_constraintdef(oid) AS "Value" FROM pg_constraint
+            WHERE conrelid::regclass::text IN ('"CaseClosures"', '"CaseReopenings"', '"CaseArchivals"', '"ReviewRecords"')
+            """).ToListAsync();
+        Assert.Contains(constraints, c => c.Contains(" u AK_ReviewRecords_OrganizationId_EudrCaseId_Id UNIQUE (\"OrganizationId\", \"EudrCaseId\", \"Id\")"));
+        Assert.Contains(constraints, c => c.Contains(" u AK_CaseClosures_OrganizationId_EudrCaseId_Id UNIQUE (\"OrganizationId\", \"EudrCaseId\", \"Id\")"));
+        Assert.Contains(constraints, c => c.Contains(" f ") && c.Contains("(\"OrganizationId\", \"EudrCaseId\", \"ReviewRecordId\") REFERENCES \"ReviewRecords\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")"));
+        Assert.Contains(constraints, c => c.Contains(" f ") && c.Contains("(\"OrganizationId\", \"EudrCaseId\", \"CaseClosureId\") REFERENCES \"CaseClosures\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")"));
+        var foreignKeys = constraints.Where(c => c.Contains(" f ") && LifecycleTables.Any(t => c.StartsWith($"\"{t}\" "))).ToList();
+        Assert.Equal(8, foreignKeys.Count); // closures: case, organization, review; reopenings: closure, case, organization; archivals: case, organization
+        Assert.All(foreignKeys, f => Assert.Contains("ON DELETE RESTRICT", f));
+    }
+
+    private sealed record LegacyIds(Guid Org, Guid Supplier, Guid Product);
+    private static async Task<LegacyIds> InsertLegacyOrganization(AppDbContext db)
+    {
+        var ids = new LegacyIds(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        await db.Database.ExecuteSqlRawAsync($"""
+INSERT INTO "Organizations" ("Id","CreatedAtUtc","UpdatedAtUtc","Name") VALUES ('{ids.Org}', now(), now(), 'Legacy Org');
+INSERT INTO "Suppliers" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","Name") VALUES ('{ids.Supplier}', now(), now(), '{ids.Org}', 'Supplier');
+INSERT INTO "Products" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","Name","CnCode","CommodityType","IsActive") VALUES ('{ids.Product}', now(), now(), '{ids.Org}', 'Product', '1801', 0, true);
+""");
+        return ids;
+    }
+
+    // A case as the pre-lifecycle schema stored it: status integer (4 = legacy Completed, 5 = legacy Archived), completion timestamp, DDS reference, a sent request and six required requirements.
+    private static async Task<Guid> InsertLegacyCase(AppDbContext db, LegacyIds ids, string reference, int status, DateTimeOffset? completedAt, string? ddsReference, bool requestSent, int[] requirementStatuses, DateTimeOffset updatedAt)
+    {
+        Guid shipment = Guid.NewGuid(), eudrCase = Guid.NewGuid();
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "Shipments" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","ReferenceNumber","SupplierId","ProductId","Quantity","Unit")
+            VALUES ({shipment}, now(), now(), {ids.Org}, {reference}, {ids.Supplier}, {ids.Product}, 1, 0)
+            """);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "Cases" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","ShipmentId","Status","CompletedAtUtc","ExternalDdsReference")
+            VALUES ({eudrCase}, now(), {updatedAt}, {ids.Org}, {shipment}, {status}, {completedAt}, {ddsReference})
+            """);
+        for (var type = 0; type < requirementStatuses.Length; type++)
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "Requirements" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","Type","Title","IsRequired","Status")
+                VALUES ({Guid.NewGuid()}, now(), now(), {ids.Org}, {eudrCase}, {type}, {"Requirement " + type}, true, {requirementStatuses[type]})
+                """);
+        if (requestSent)
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "SupplierRequests" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","SupplierId","TokenHash","ExpiresAtUtc","SentAtUtc")
+                VALUES ({Guid.NewGuid()}, now(), now(), {ids.Org}, {eudrCase}, {ids.Supplier}, {Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N")}, now() + interval '30 days', now())
+                """);
+        return eudrCase;
+    }
+
+    [Fact]
+    public async Task Upgrade_converts_legacy_completed_and_archived_cases_without_inventing_closures_and_preserves_the_legacy_completion_as_audit_evidence()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(ReviewMigration);
+        var ids = await InsertLegacyOrganization(db);
+        var completedB = new DateTimeOffset(2026, 3, 1, 10, 0, 0, TimeSpan.Zero); var completedE = new DateTimeOffset(2026, 3, 2, 11, 30, 0, TimeSpan.Zero);
+        var archivedAt = new DateTimeOffset(2026, 3, 4, 5, 6, 7, TimeSpan.Zero);
+        int[] allAccepted = [2, 2, 2, 2, 2, 2];
+        var open = await InsertLegacyCase(db, ids, "OPEN", 2, null, null, true, [1, 2, 2, 2, 2, 2], archivedAt);                    // not terminal: untouched
+        var completedReady = await InsertLegacyCase(db, ids, "DONE-READY", 4, completedB, "DDS-B", true, allAccepted, archivedAt);  // Completed, everything accepted -> ReadyForExport
+        var completedDraft = await InsertLegacyCase(db, ids, "DONE-DRAFT", 4, completedB, null, false, allAccepted, archivedAt);     // Completed, no request ever sent -> Draft
+        var archivedReview = await InsertLegacyCase(db, ids, "ARCH-REVIEW", 5, null, null, true, [1, 2, 2, 2, 2, 2], archivedAt);    // Archived, never completed -> ReviewNeeded
+        var archivedCompleted = await InsertLegacyCase(db, ids, "ARCH-DONE", 5, completedE, "DDS-E", true, [0, 2, 2, 2, 2, 2], archivedAt); // Completed, then archived -> WaitingForSupplier
+        async Task<int> Scalar(string sql, params object[] args) => await db.Database.SqlQueryRaw<int>(sql, args).SingleAsync();
+
+        await db.Database.MigrateAsync();
+
+        Assert.Contains(LifecycleMigration, await db.Database.GetAppliedMigrationsAsync());
+        // Statuses: the legacy Completed/Archived values are recalculated into an open status; nothing else is touched.
+        async Task<int> Status(Guid id) => await Scalar("""SELECT "Status" AS "Value" FROM "Cases" WHERE "Id" = {0}""", id);
+        Assert.Equal(2, await Status(open)); Assert.Equal(3, await Status(completedReady)); Assert.Equal(0, await Status(completedDraft));
+        Assert.Equal(2, await Status(archivedReview)); Assert.Equal(1, await Status(archivedCompleted));
+        Assert.Equal(1, await Scalar("""SELECT count(*)::int AS "Value" FROM "Cases" WHERE "Id" = {0} AND "InternalReviewCompletedAtUtc" IS NOT NULL""", completedReady)); // ReadyForExport carries its timestamp, like Recalculate
+        Assert.Equal(0, await Scalar("""SELECT count(*)::int AS "Value" FROM "Cases" WHERE "Id" IN ({0}, {1}, {2}) AND "InternalReviewCompletedAtUtc" IS NOT NULL""", completedDraft, archivedReview, archivedCompleted));
+        Assert.Equal(5, await Count(db, "Cases"));
+        // No closure and no reopening is invented: legacy completions had no qualifying Owner review and no Owner reopened anything.
+        Assert.Equal(0, await Count(db, "CaseClosures")); Assert.Equal(0, await Count(db, "CaseReopenings"));
+        // Archive history: exactly the two legacy Archived cases, each one open period that records what is known and nothing more.
+        Assert.Equal(2, await Count(db, "CaseArchivals"));
+        foreach (var archived in new[] { archivedReview, archivedCompleted })
+            Assert.Equal(1, await Scalar("""
+                SELECT count(*)::int AS "Value" FROM "CaseArchivals" WHERE "EudrCaseId" = {0} AND "Number" = 1 AND "ArchivedByUserId" IS NULL AND "UnarchivedAtUtc" IS NULL
+                AND "UnarchivedByUserId" IS NULL AND "UnarchiveReason" IS NULL AND "Reason" = 'Archived before case lifecycle v2.' AND "ArchivedAtUtc" = {1}
+                """, archived, archivedAt));
+        // Legacy completion evidence: one System event per case that had a completion (Completed, or Completed then Archived), with the old values preserved.
+        Assert.Equal(3, await Scalar("""SELECT count(*)::int AS "Value" FROM "AuditEvents" WHERE "EventType" = {0}""", LegacyEvent));
+        foreach (var notCompleted in new[] { open, archivedReview })
+            Assert.Equal(0, await Scalar("""SELECT count(*)::int AS "Value" FROM "AuditEvents" WHERE "EudrCaseId" = {0} AND "EventType" = {1}""", notCompleted, LegacyEvent));
+        async Task<string> Metadata(Guid id, string key) => await db.Database.SqlQueryRaw<string>("""SELECT COALESCE("MetadataJson"->>{1}, '<null>') AS "Value" FROM "AuditEvents" WHERE "EudrCaseId" = {0} AND "EventType" = {2}""", id, key, LegacyEvent).SingleAsync();
+        Assert.Equal("DDS-B", await Metadata(completedReady, "legacyExternalDdsReference")); Assert.Equal("Completed", await Metadata(completedReady, "legacyStatus"));
+        Assert.Equal("<null>", await Metadata(completedDraft, "legacyExternalDdsReference")); Assert.Equal("Completed", await Metadata(completedDraft, "legacyStatus"));
+        Assert.Equal("DDS-E", await Metadata(archivedCompleted, "legacyExternalDdsReference")); Assert.Equal("Archived", await Metadata(archivedCompleted, "legacyStatus"));
+        Assert.Equal(1, await Scalar("""SELECT count(*)::int AS "Value" FROM "AuditEvents" WHERE "EudrCaseId" = {0} AND "EventType" = {2} AND ("MetadataJson"->>'legacyCompletedAtUtc')::timestamptz = {1}""", completedReady, completedB, LegacyEvent));
+        Assert.Equal(1, await Scalar("""SELECT count(*)::int AS "Value" FROM "AuditEvents" WHERE "EudrCaseId" = {0} AND "EventType" = {2} AND ("MetadataJson"->>'legacyCompletedAtUtc')::timestamptz = {1}""", archivedCompleted, completedE, LegacyEvent));
+        Assert.Equal(3, await Scalar("""SELECT count(*)::int AS "Value" FROM "AuditEvents" WHERE "EventType" = {0} AND "ActorType" = 2 AND "ActorUserId" IS NULL AND "SupplierRequestId" IS NULL""", LegacyEvent)); // System events
+        // The legacy columns are gone and the other rows are untouched.
+        Assert.Equal(0, await Scalar("""SELECT count(*)::int AS "Value" FROM information_schema.columns WHERE table_name = 'Cases' AND column_name IN ('CompletedAtUtc', 'ExternalDdsReference')"""));
+        Assert.Equal(30, await Count(db, "Requirements")); Assert.Equal(4, await Count(db, "SupplierRequests"));
+    }
+
+    [Fact]
+    public async Task Upgrade_of_a_database_without_terminal_cases_creates_empty_lifecycle_tables_and_no_events()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(ReviewMigration);
+        var ids = await InsertLegacyOrganization(db);
+        await InsertLegacyCase(db, ids, "OPEN-ONLY", 1, null, null, true, [0, 2, 2, 2, 2, 2], DateTimeOffset.UtcNow);
+        await db.Database.MigrateAsync();
+        foreach (var table in LifecycleTables) Assert.Equal(0, await Count(db, table));
+        Assert.Equal(0, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM "AuditEvents" WHERE "EventType" = {0}""", LegacyEvent).SingleAsync());
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT "Status" AS "Value" FROM "Cases" """).SingleAsync());
+    }
+
+    // Inserts one row of the named lifecycle table for the seeded case (the review and closure it needs first where the row needs one).
+    private static async Task InsertLifecycleRow(AppDbContext db, SeededCase seed, string category)
+    {
+        var org = seed.OrganizationId; var caseId = seed.CaseId;
+        if (category == "CaseArchivals")
+        {
+            await db.Database.ExecuteSqlRawAsync($"""INSERT INTO "CaseArchivals" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","Number","ArchivedAtUtc","Reason") VALUES ('{Guid.NewGuid()}', now(), now(), '{org}', '{caseId}', 1, now(), 'r')""");
+            return;
+        }
+        await InsertReviewRow(db, seed, "ReviewRecords");
+        var closure = Guid.NewGuid();
+        await db.Database.ExecuteSqlRawAsync($"""INSERT INTO "CaseClosures" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","Number","Outcome","ReviewRecordId","ClosedByUserId","ClosedAtUtc") SELECT '{closure}', now(), now(), '{org}', '{caseId}', 1, 0, "Id", '{Guid.NewGuid()}', now() FROM "ReviewRecords" WHERE "EudrCaseId" = '{caseId}'""");
+        if (category == "CaseReopenings")
+            await db.Database.ExecuteSqlRawAsync($"""INSERT INTO "CaseReopenings" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","CaseClosureId","Reason","ReopenedByUserId","ReopenedAtUtc") VALUES ('{Guid.NewGuid()}', now(), now(), '{org}', '{caseId}', '{closure}', 'r', '{Guid.NewGuid()}', now())""");
+    }
+
+    [Theory]
+    [InlineData("CaseClosures")]
+    [InlineData("CaseReopenings")]
+    [InlineData("CaseArchivals")]
+    public async Task Lifecycle_down_is_refused_for_every_table_and_leaves_schema_and_rows_intact(string category)
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.Database.MigrateAsync();
+        await InsertLifecycleRow(db, seed, category);
+
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => db.GetService<IMigrator>().MigrateAsync(ReviewMigration));
+        Assert.Contains("Case lifecycle records exist; rollback would destroy history", failure.ToString());
+
+        Assert.Contains(LifecycleMigration, await db.Database.GetAppliedMigrationsAsync());
+        var tables = await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_schema = 'public'").ToListAsync();
+        Assert.Subset(tables.ToHashSet(), LifecycleTables.ToHashSet());
+        Assert.Equal(1, await Count(db, category));
+        Assert.Equal(0, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM information_schema.columns WHERE table_name = 'Cases' AND column_name IN ('CompletedAtUtc', 'ExternalDdsReference')""").SingleAsync());
+    }
+
+    [Fact]
+    public async Task Lifecycle_down_succeeds_when_empty_restoring_the_empty_legacy_columns_and_keeping_the_preserved_audit_evidence()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.Database.MigrateAsync();
+        await InsertReviewRow(db, seed, "ReviewRecords");
+        await db.Database.ExecuteSqlRawAsync($"""INSERT INTO "AuditEvents" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","ActorType","EventType","Description") VALUES ('{Guid.NewGuid()}', now(), now(), '{seed.OrganizationId}', '{seed.CaseId}', 2, '{LegacyEvent}', 'preserved')""");
+
+        await db.GetService<IMigrator>().MigrateAsync(ReviewMigration);
+
+        Assert.DoesNotContain(LifecycleMigration, await db.Database.GetAppliedMigrationsAsync()); Assert.Contains(ReviewMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('CaseClosures','CaseReopenings','CaseArchivals')").ToListAsync());
+        var columns = await db.Database.SqlQueryRaw<string>("SELECT column_name || ':' || is_nullable AS \"Value\" FROM information_schema.columns WHERE table_name = 'Cases' AND column_name IN ('CompletedAtUtc', 'ExternalDdsReference')").ToListAsync();
+        Assert.Equal(["CompletedAtUtc:YES", "ExternalDdsReference:YES"], columns.Order().ToArray()); // restored empty: values live only in the preserved audit events
+        Assert.Equal(0, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM pg_constraint WHERE conname = 'AK_ReviewRecords_OrganizationId_EudrCaseId_Id'""").SingleAsync());
+        Assert.Equal(1, await Count(db, "ReviewRecords")); Assert.Equal(1, await Count(db, "Cases"));
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM "AuditEvents" WHERE "EventType" = {0}""", LegacyEvent).SingleAsync());
     }
 
 #pragma warning restore EF1002

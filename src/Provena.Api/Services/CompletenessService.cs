@@ -32,7 +32,7 @@ public sealed class CompletenessService(AppDbContext db, DossierFactsBuilder bui
         var state = await Evaluate(c, ct);
         var (reviewFreshness, latestReview) = await freshness.Resolve(c.Id, state.Facts, ct);
         return new(CompletenessPolicy.Dto(), DateTimeOffset.UtcNow, state.Fingerprint.Fingerprint, state.Fingerprint.Version, new(state.Evaluation.ApplicabilityStatus, state.Facts.Applicability?.Id),
-            state.Evaluation.DataCoverage, state.Evaluation.EvidenceReadiness, reviewFreshness, latestReview, Advisories(state.Facts, c.Status is EudrCaseStatus.Completed or EudrCaseStatus.Archived), state.Evaluation.Items);
+            state.Evaluation.DataCoverage, state.Evaluation.EvidenceReadiness, reviewFreshness, latestReview, Advisories(state.Facts, c.Status == EudrCaseStatus.Closed || await db.CaseArchivals.AsNoTracking().Current().AnyAsync(x => x.EudrCaseId == c.Id, ct)), state.Evaluation.Items);
     }
 
     // Advisories never make a case incomplete and never enter the fingerprint.

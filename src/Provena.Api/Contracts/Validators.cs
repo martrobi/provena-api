@@ -59,10 +59,6 @@ public sealed class ReviewValidator : AbstractValidator<ReviewInput>
 {
     public ReviewValidator() { RuleFor(x => x.Status).Must(x => x is RequirementStatus.Accepted or RequirementStatus.Rejected or RequirementStatus.NotRequired); RuleFor(x => x.ReviewerNote).MaximumLength(4000); }
 }
-public sealed class CompleteValidator : AbstractValidator<CompleteInput>
-{
-    public CompleteValidator() { RuleFor(x => x.ExternalDdsReference).MaximumLength(200); }
-}
 public sealed class ProducerValidator : AbstractValidator<ProducerInput>
 {
     public ProducerValidator()
