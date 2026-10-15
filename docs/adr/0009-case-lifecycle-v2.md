@@ -46,7 +46,7 @@ Two independent dimensions.
 
 **Removed:** `CompletedAtUtc` and the case-level `ExternalDdsReference` (the reference lives on the closure), `POST .../complete` and `DELETE /api/shipments/{id}`.
 
-Deliberately undecided: whether a Member may ever archive; verification of a DDS reference or any DDS submission; retention and erasure of lifecycle history; post-closure "new concern" handling (Article 4(5) style follow-up); notification of suppliers; a "closed under a newer policy version" rule (a policy-version change is informational and never stales a review, as in ADR 0008).
+Deliberately undecided: whether a Member may ever archive; verification of a DDS reference or any DDS submission; retention and erasure of lifecycle history; post-closure "new concern" handling beyond the manual records of [ADR 0012](0012-post-completion-concerns-v1.md) (Article 4(5) style follow-up: impact discovery, recall, delivery); automatic notification of suppliers; a "closed under a newer policy version" rule (a policy-version change is informational and never stales a review, as in ADR 0008).
 
 ## Alternatives considered
 

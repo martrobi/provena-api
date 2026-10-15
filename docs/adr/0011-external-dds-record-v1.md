@@ -42,7 +42,7 @@ Before this decision (observed at `a06df65`):
 
 **Sensitive `VerificationNumber`.** The verification number is access-enabling data. It is returned **only** by the three dedicated, authenticated External DDS endpoints. It is never part of the case, lifecycle, completeness, review or export DTOs, never in ProblemDetails (including the close-gate summary and validation messages, which do not echo values), never in audit text and never logged. The audit events `ExternalDdsRecorded` and `ExternalDdsReplaced` carry ids only and make no approval or compliance claim; `CaseClosed` additionally names the record id. At rest it is stored unencrypted like every other column; this ADR does not add field-level encryption (see revisit triggers).
 
-**Terminal cases.** Closed and archived cases keep both reads but reject a new record or replacement (`409`, `CaseService.EnsureMutable`). Reopening, and any corrective action after closure, is outside this decision.
+**Terminal cases.** Closed and archived cases keep both reads but reject a new record or replacement (`409`, `CaseService.EnsureMutable`). Reopening is [ADR 0009](0009-case-lifecycle-v2.md); a manually recorded concern or corrective action after closure is [ADR 0012](0012-post-completion-concerns-v1.md) and never changes an External DDS record.
 
 ## Alternatives considered
 
