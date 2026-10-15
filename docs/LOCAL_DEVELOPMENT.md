@@ -11,6 +11,6 @@ CI/CD, deploy i hosting odgođeni su odlukom vlasnika. Ne dodavati njihove konfi
 
 - Održavati upute usklađene s kodom i pokrenuti postojeće lokalne provjere.
 - Provjeriti ključni workflow u browseru protiv lokalnog API-ja.
-- Dogovoriti poslovne odluke: značenje Completed, odnos Owner pregleda i završavanja, izuzeća, količine i ispravci terminalnog predmeta. Ovaj zadatak ne mijenja ta pravila.
+- Dogovoriti preostale poslovne odluke: izuzeća (waiver), količine i ispravci nakon zatvaranja, tko smije arhivirati osim Ownera. Zatvaranje predmeta je odlučeno u [ADR 0009](adr/0009-case-lifecycle-v2.md): Owner zatvara samo na temelju aktualnog (Current) Owner pregleda, Owner ponovno otvara i arhivira uz razlog. Ovaj zadatak ne mijenja ta pravila.
 - Poboljšavati korisnički tok i smanjivati ručni unos prema stvarnom lokalnom testiranju.
 - Tek kada vlasnik odluči pokrenuti vanjski pilot, ponovno razmotriti dostavu e-maila, hosting, operativne sigurnosne mjere i CI/CD. Dokumentirani budući rizici ne znače da te sustave treba graditi sada.

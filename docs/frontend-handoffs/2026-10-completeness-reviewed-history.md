@@ -1,5 +1,7 @@
 # Completeness facts, completeness read model and immutable reviewed history (Slice 5)
 
+> **Update (Case Lifecycle v2):** `Completed` and `Archived` are no longer statuses and the 409 text for a non-editable case changed; "Completed/Archived" below now means a Closed or archived case, and `Complete` is replaced by an Owner-backed close. See [the lifecycle handoff](2026-10-case-lifecycle-v2.md).
+
 Status: **complete Slice 5 backend contract.** It covers the working-fact APIs (commit 1), the read-only completeness API (commit 2) and the Owner-only immutable reviews, review freshness and the reviewed export (commit 3). Risk, mitigation, release, DDS and EU Information System are out of scope.
 
 ## 1. Summary

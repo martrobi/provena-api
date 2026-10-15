@@ -1,5 +1,7 @@
 # Retained evidence: withdraw and supersede instead of delete/overwrite
 
+> **Update (Case Lifecycle v2):** `Completed` and `Archived` are no longer statuses and the 409 text for a non-editable case changed; "Completed/Archived" below now means a Closed or archived case, and `Complete` is replaced by an Owner-backed close. See [the lifecycle handoff](2026-10-case-lifecycle-v2.md).
+
 ## 1. Summary
 
 Documents, geometry uploads and supplier details are now retained instead of being deleted or overwritten. Internal document DELETE **withdraws** the document, a new geometry upload **supersedes** the previous one, and every supplier details save creates a new version. Every existing endpoint still returns only **current** evidence, so most clients see the same shapes with a few identity and value changes listed below. Two new internal read-only routes expose the retained history: `GET /api/eudr-cases/{caseId}/evidence-history` and `GET /api/eudr-cases/{caseId}/geolocation/{geolocationId}/file`.
