@@ -158,7 +158,7 @@ Mapping: `Matched` -> `Satisfied`, `MissingData` -> `Missing`, `UnitMismatch` an
 ```
 
 - `outcome` in the detail text is one of `MissingData`, `UnitMismatch`, `QuantityMismatch`; `errors.quantityReconciliation` is the full structure of section 4. Use `errors.reason === "QuantityNotReconciled"` to recognise it; do not parse `detail`.
-- **Order inside close** (unchanged except the new last step): archived (409) -> already closed (409) -> body shape (400) -> review checks (409) -> DDS-reference rule (400) -> freshness (`StaleReview` 409) -> **quantity gate (`QuantityNotReconciled` 409)** -> success. A stale review is therefore reported as `StaleReview`, not as a quantity failure.
+- **Order inside close** (unchanged except the new last step): archived (409) -> already closed (409) -> body shape (400) -> review checks (409) -> DDS-reference rule (400) -> freshness (`StaleReview` 409) -> **quantity gate (`QuantityNotReconciled` 409)** -> success. A stale review is therefore reported as `StaleReview`, not as a quantity failure. *Amended by [External DDS Record v1](2026-10-external-dds-record.md):* the DDS-reference 400 now applies only to the non-DDS outcomes, and a new last step, the External DDS record gate (409 `ExternalDdsRecordMissing` / `ExternalDdsReviewMismatch` / `ExternalDdsReferenceMismatch`), follows the quantity gate.
 - After correcting the facts the old review is `Stale` (a quantity is a fingerprinted fact), so the Owner records a **new** review and then closes.
 - **Success is unchanged:** `201 Created`, `CaseClosureDto`, `Location` = `GET .../lifecycle`.
 

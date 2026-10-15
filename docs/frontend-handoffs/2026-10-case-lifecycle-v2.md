@@ -2,6 +2,8 @@
 
 Status: **complete backend contract (Slices 1-3).** The client has not adapted yet; this document is the input for the client's Slice 4. Canonical sources are the code, the tests, [API](../API.md) ("Case lifecycle"), [EUDR_DOMAIN](../EUDR_DOMAIN.md) ("Case lifecycle v2") and [ADR 0009](../adr/0009-case-lifecycle-v2.md). It supersedes the lifecycle statements of the earlier handoffs ([retained evidence](2026-10-retained-evidence.md), [case dossier](2026-10-case-dossier-lot-sources.md), [completeness and reviews](2026-10-completeness-reviewed-history.md)): wherever they say a `Completed` or `Archived` case, read "Closed or archived", and wherever they say `Complete` is not gated by a review, read the closing rules below.
 
+> **Amended by [External DDS Record v1](2026-10-external-dds-record.md):** the external DDS reference rules for `ExternalDdsCompleted` below are historical; the structured External DDS record is now required and authoritative.
+
 ## 1. Summary
 
 - A case has a **workflow status**: `Draft`, `WaitingForSupplier`, `ReviewNeeded`, `ReadyForExport` or `Closed`. `Completed` and `Archived` no longer exist as statuses.
@@ -51,7 +53,7 @@ All four write bodies are JSON (`Content-Type: application/json`), enums are str
 { "expectedReviewId": "7c1f...", "externalDdsReference": "DDS-2026-0001" }
 ```
 - `expectedReviewId` (required, non-empty GUID): the `latestReview.reviewId` the Owner loaded from `GET .../completeness`.
-- `externalDdsReference` (optional string): trimmed; max 200; blank is treated as absent. **Required** when the review decision is `AcceptedAsCompleteUnderPolicy` (outcome `ExternalDdsCompleted`); **rejected with 400** for `ConfirmedOutsideRegulatoryScope` and `ConfirmedUnsupportedFlow`.
+- `externalDdsReference` (optional string): trimmed; max 200; blank is treated as absent. **Required** when the review decision is `AcceptedAsCompleteUnderPolicy` (outcome `ExternalDdsCompleted`); **rejected with 400** for `ConfirmedOutsideRegulatoryScope` and `ConfirmedUnsupportedFlow`. **Superseded for `ExternalDdsCompleted` by [External DDS Record v1](2026-10-external-dds-record.md):** the field is now optional there, never authoritative, must equal the current External DDS record's `referenceNumber` when supplied, and a missing record is 409 `ExternalDdsRecordMissing`; the rejection for the other two outcomes is unchanged.
 
 ```json
 // POST /api/eudr-cases/{caseId}/reopen
