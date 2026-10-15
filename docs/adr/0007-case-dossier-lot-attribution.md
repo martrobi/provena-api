@@ -3,7 +3,7 @@
 - Date: 2026-10-13
 - Decision status: Accepted
 - Implementation status: Implemented. The persistence model (`CaseDossier`, `CaseLot`, `LotContribution`, `ContributionPlot`), guards, `Current()`, migration `CaseDossier`, the internal API (`CaseDossierService`, three routes), the shipment lock and the export additions.
-- Decision owner / approval evidence: Owner approval of `docs/plans/2026-10-case-dossier-lot-sources.md` (2026-10-13, revision 4): D1-D5 approved, revision-2 corrections 1-5 and the revision-3 semantic correction incorporated.
+- Decision owner / approval evidence: The owner approved the case-dossier/lot-sources implementation plan supplied with the corresponding implementation request (2026-10-13, revision 4): D1-D5 approved, revision-2 corrections 1-5 and the revision-3 semantic correction incorporated. The original plan artifact was not retained in the repository.
 - Supersedes / superseded by: refines [ADR 0002](0002-supplier-producer-production-plot.md) and builds on [ADR 0005](0005-retained-evidence-append-only-rows.md) and [ADR 0006](0006-production-provenance-plot-revisions.md) (supersedes none of them).
 
 ## Context and evidence

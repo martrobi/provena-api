@@ -3,7 +3,7 @@
 - Date: 2026-10-13
 - Decision status: Accepted
 - Implementation status: Implemented (write paths and the internal history read API)
-- Decision owner / approval evidence: Owner approval of `docs/plans/2026-10-retained-evidence-foundation.md` (2026-10-13), with owner answers: minimal history read API, export contains current evidence only plus a scope notice, review-decision history deferred, no erasure path in the pilot (recorded as an open legal item).
+- Decision owner / approval evidence: The owner approved the retained-evidence implementation plan supplied with the corresponding implementation request (2026-10-13), with owner answers: minimal history read API, export contains current evidence only plus a scope notice, review-decision history deferred, no erasure path in the pilot (recorded as an open legal item). The original plan artifact was not retained in the repository.
 - Supersedes / superseded by: none.
 
 ## Context and evidence
