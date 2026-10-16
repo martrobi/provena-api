@@ -70,7 +70,7 @@ Before this decision (observed at `f671a63`):
 - Six internal routes (below), one migration and four audit event types; no change to existing DTOs, `CaseClosure`, review or export shapes.
 - Lists are unpaginated per-case collections (pilot scale, like the other per-case histories).
 - Guards are application-level; the database backstop is the composite Restrict FKs, the unique indexes and the CHECKs.
-- Nothing here is a legal-compliance, risk, recall or release decision.
+- Nothing here is a legal-compliance, risk, recall or release decision. A concern is not a risk assessment; the separate pre-completion risk layer is [ADR 0013](0013-risk-assessment-and-mitigation-v1.md), and a concern never creates, changes or invalidates a risk assessment.
 
 ## Deferred scope
 
