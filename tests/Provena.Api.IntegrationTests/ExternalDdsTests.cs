@@ -308,6 +308,7 @@ public sealed class ExternalDdsTests(ApiFactory factory)
     {
         var (o, w, reviewId) = await Reviewed(); var c = o.Client;
         var recordId = await RecordOk(c, w.CaseId, reviewId, "EU-REF-1");
+        await RiskTestSupport.EnsureNegligible(c, w.CaseId, reviewId); // Risk Assessment v1: ExternalDdsCompleted also needs a Negligible assessment of the review
         Assert.Equal(HttpStatusCode.Created, (await Close(c, w.CaseId, reviewId)).StatusCode);
         var attempt = await Problem(await Post(c, w.CaseId, Body(reviewId, "EU-REF-2", Secret, expected: recordId, reason: "Too late.")), HttpStatusCode.Conflict);
         Assert.Contains("Closed", attempt.GetProperty("detail").GetString());
@@ -330,6 +331,7 @@ public sealed class ExternalDdsTests(ApiFactory factory)
     {
         var (o, w, reviewId) = await Reviewed(); var c = o.Client;
         var link = await Json(await c.PostAsync($"/api/eudr-cases/{w.CaseId}/supplier-request", null)); var token = link.GetProperty("publicUrl").GetString()!.Split('/').Last();
+        await RiskTestSupport.EnsureNegligible(c, w.CaseId, reviewId); // the risk gate sits before the External DDS gate this test is about
         // 1. No record: the free-text field alone can no longer close a case.
         foreach (var reference in new string?[] { null, "OLD-CLIENT-REF" })
         {
@@ -341,6 +343,7 @@ public sealed class ExternalDdsTests(ApiFactory factory)
         await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/recipients", new { resolution = "RecipientsIdentified", recipients = new[] { new { name = "Other GmbH", postalAddress = "Weg 2, Wien", email = "other@example.test" } } }));
         Assert.Equal("StaleReview", Reason(await Problem(await Close(c, w.CaseId, reviewId), HttpStatusCode.Conflict))); // stale wins over every DDS error
         var review2 = await Review(c, w.CaseId, "AcceptedAsCompleteUnderPolicy");
+        await RiskTestSupport.EnsureNegligible(c, w.CaseId, review2);
         var mismatch = await Problem(await Close(c, w.CaseId, review2), HttpStatusCode.Conflict);
         Assert.Equal("ExternalDdsReviewMismatch", Reason(mismatch));
         var summary = mismatch.GetProperty("errors").GetProperty("externalDds");
@@ -370,6 +373,7 @@ public sealed class ExternalDdsTests(ApiFactory factory)
     public async Task Closing_without_the_legacy_reference_uses_the_record_and_other_outcomes_need_no_record()
     {
         var (o, w, reviewId) = await Reviewed(); var c = o.Client;
+        await RiskTestSupport.EnsureNegligible(c, w.CaseId, reviewId);
         await RecordOk(c, w.CaseId, reviewId, "EU-REF-7");
         var closure = await Json(await Close(c, w.CaseId, reviewId), HttpStatusCode.Created);
         Assert.Equal("EU-REF-7", closure.GetProperty("externalDdsReference").GetString());

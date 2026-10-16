@@ -32,6 +32,6 @@ public sealed class CaseLifecycleReadService(AppDbContext db)
 
     public static CaseReopeningDto ToDto(CaseReopening r) => new(r.Id, r.CaseClosureId, r.Reason, r.ReopenedByUserId, r.ReopenedAtUtc);
     public static CaseClosureDto ToDto(CaseClosure k, ReviewDecision decision, int revisionNumber, CaseReopening? reopening) =>
-        new(k.Id, k.Number, k.Outcome, k.ReviewRecordId, revisionNumber, decision, k.ExternalDdsReference, k.ClosedByUserId, k.ClosedAtUtc, reopening == null ? null : ToDto(reopening));
+        new(k.Id, k.Number, k.Outcome, k.ReviewRecordId, revisionNumber, decision, k.ExternalDdsReference, k.RiskAssessmentId, k.ClosedByUserId, k.ClosedAtUtc, reopening == null ? null : ToDto(reopening));
     public static CaseArchivalDto ToDto(CaseArchival a) => new(a.Id, a.Number, a.Reason, a.ArchivedByUserId, a.ArchivedAtUtc, a.UnarchiveReason, a.UnarchivedByUserId, a.UnarchivedAtUtc);
 }

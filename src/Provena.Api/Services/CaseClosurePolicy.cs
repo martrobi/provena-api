@@ -1,3 +1,4 @@
+using Provena.Api.Common;
 using Provena.Api.Contracts;
 using Provena.Api.Domain;
 namespace Provena.Api.Services;
@@ -39,6 +40,24 @@ public static class CaseClosurePolicy
         if (current.ReviewId != latestReviewId) return ("ExternalDdsReviewMismatch", "The recorded external DDS submission belongs to a different review than the latest one; record the submission of the latest review.");
         if (normalizedRequestReference != null && !string.Equals(normalizedRequestReference, current.ReferenceNumber, StringComparison.Ordinal))
             return ("ExternalDdsReferenceMismatch", "The supplied external DDS reference differs from the recorded external DDS reference number; the recorded value is authoritative.");
+        return null;
+    }
+
+    // The one typed conflict for "this review already backs a closure". Close and risk-assessment creation both use it (same reason, same detail), so a client matches errors.reason and never
+    // the detail text. The detail text is unchanged from before the reason was added.
+    public const string ReviewAlreadyBacksClosureReason = "ReviewAlreadyBacksClosure";
+    public static ApiException ReviewAlreadyBacksClosure()
+        => new(409, "This review already backs a closure; record a new review before closing the case again.", new { reason = ReviewAlreadyBacksClosureReason });
+
+    // Risk Assessment v1 gate, evaluated AFTER the stale-review and quantity gates and BEFORE the External DDS gate: closing as ExternalDdsCompleted needs the LATEST risk assessment of the case to
+    // rest on exactly the latest review and to be Negligible. It reads no timestamps (the assessment's server time says nothing about when the human judgement was made, so there is no chronology
+    // rule against the External DDS record). Returns the machine-readable reason and message, or null; the other outcomes have no risk gate.
+    public static (string Reason, string Message)? RiskError(CaseClosureOutcome outcome, Guid latestReviewId, RiskAssessment? latest)
+    {
+        if (outcome != CaseClosureOutcome.ExternalDdsCompleted) return null;
+        if (latest == null) return ("RiskAssessmentMissing", "Record a risk assessment of the latest review before closing the case as ExternalDdsCompleted.");
+        if (latest.ReviewRecordId != latestReviewId) return ("RiskAssessmentReviewMismatch", "The latest risk assessment belongs to a different review than the latest one; record a risk assessment of the latest review.");
+        if (latest.Conclusion != RiskConclusion.Negligible) return ("RiskNotNegligible", "The latest risk assessment concluded NotNegligible; the case cannot be closed as ExternalDdsCompleted on it.");
         return null;
     }
 }

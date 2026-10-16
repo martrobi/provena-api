@@ -16,6 +16,9 @@ public sealed class CaseClosure : TenantEntity
     public CaseClosureOutcome Outcome { get; set; }
     public Guid ReviewRecordId { get; set; }
     public string? ExternalDdsReference { get; set; }
+    // Risk Assessment v1: set only for an ExternalDdsCompleted closure. The composite FK (Org, Case, ReviewRecordId, RiskAssessmentId) proves in the database that the assessment was made
+    // on the SAME review that backs this closure. Null for legacy closures and for the other outcomes.
+    public Guid? RiskAssessmentId { get; set; }
     public Guid ClosedByUserId { get; set; }
     public DateTimeOffset ClosedAtUtc { get; set; }
 }

@@ -52,6 +52,8 @@ public sealed class EndpointInventoryTests(ApiFactory factory)
         new("GET", "api/eudr-cases/{caseId:guid}/concerns", Access.Authenticated), new("POST", "api/eudr-cases/{caseId:guid}/concerns", Access.Authenticated),
         new("GET", "api/eudr-cases/{caseId:guid}/concerns/{concernId:guid}", Access.Authenticated), new("POST", "api/eudr-cases/{caseId:guid}/concerns/{concernId:guid}/actions", Access.Authenticated),
         new("POST", "api/eudr-cases/{caseId:guid}/concerns/{concernId:guid}/notifications", Access.Authenticated), new("POST", "api/eudr-cases/{caseId:guid}/concerns/{concernId:guid}/resolution", Access.Authenticated),
+        new("GET", "api/eudr-cases/{caseId:guid}/risk", Access.Authenticated), new("GET", "api/eudr-cases/{caseId:guid}/risk-assessments/{assessmentId:guid}", Access.Authenticated),
+        new("POST", "api/eudr-cases/{caseId:guid}/risk-assessments", Access.Authenticated), new("POST", "api/eudr-cases/{caseId:guid}/risk-mitigations", Access.Authenticated),
         new("GET", "api/eudr-cases/{caseId:guid}/completeness", Access.Authenticated),
         new("POST", "api/eudr-cases/{caseId:guid}/reviews", Access.Authenticated), new("GET", "api/eudr-cases/{caseId:guid}/reviews", Access.Authenticated),
         new("GET", "api/eudr-cases/{caseId:guid}/reviews/{reviewId:guid}", Access.Authenticated), new("GET", "api/eudr-cases/{caseId:guid}/reviews/{reviewId:guid}/export", Access.Authenticated),

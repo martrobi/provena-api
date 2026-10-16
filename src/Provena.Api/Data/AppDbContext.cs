@@ -46,6 +46,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
     public DbSet<ConcernAction> ConcernActions => Set<ConcernAction>();
     public DbSet<ConcernNotification> ConcernNotifications => Set<ConcernNotification>();
     public DbSet<ConcernResolution> ConcernResolutions => Set<ConcernResolution>();
+    public DbSet<RiskAssessment> RiskAssessments => Set<RiskAssessment>();
+    public DbSet<RiskAssessmentFinding> RiskAssessmentFindings => Set<RiskAssessmentFinding>();
+    public DbSet<RiskMitigationMeasure> RiskMitigationMeasures => Set<RiskMitigationMeasure>();
     protected override void OnModelCreating(ModelBuilder b)
     {
         base.OnModelCreating(b);
@@ -68,6 +71,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         ConfigureTenant<CaseRevision>(b); ConfigureTenant<CaseRevisionDocument>(b); ConfigureTenant<CaseRevisionEvidenceLink>(b); ConfigureTenant<ReviewRecord>(b);
         ConfigureTenant<CaseClosure>(b); ConfigureTenant<CaseReopening>(b); ConfigureTenant<CaseArchival>(b); ConfigureTenant<ExternalDdsRecord>(b);
         ConfigureTenant<CaseConcern>(b); ConfigureTenant<ConcernAction>(b); ConfigureTenant<ConcernNotification>(b); ConfigureTenant<ConcernResolution>(b);
+        ConfigureTenant<RiskAssessment>(b); ConfigureTenant<RiskAssessmentFinding>(b); ConfigureTenant<RiskMitigationMeasure>(b);
         b.Entity<Supplier>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Product>().HasIndex(x => new { x.OrganizationId, x.ExternalReference }).IsUnique().HasFilter("\"ExternalReference\" IS NOT NULL");
         b.Entity<Shipment>().HasIndex(x => new { x.OrganizationId, x.ReferenceNumber }).IsUnique();
@@ -286,6 +290,43 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         b.Entity<ConcernResolution>().HasIndex(x => x.ConcernId).IsUnique(); // One resolution per concern.
         b.Entity<ConcernResolution>().Property(x => x.Rationale).HasMaxLength(4000);
         b.Entity<ConcernResolution>().ToTable("ConcernResolutions", t => t.HasCheckConstraint("CK_ConcernResolutions_NonblankRationale", "btrim(\"Rationale\") <> ''"));
+        // Risk Assessment & Mitigation v1: fully immutable retained decisions. An assessment pins ONE review of its own case through a case-consistent composite Restrict FK. Its second alternate key
+        // (Org, Case, ReviewRecordId, Id) is the principal of the closure's FK: a CaseClosure references (Org, Case, ITS OWN ReviewRecordId, RiskAssessmentId), so the database makes it impossible for a
+        // closure on review R2 to reference an assessment made on review R1 (or on another case or organization). Legacy closures and the other outcomes keep RiskAssessmentId null (MATCH SIMPLE).
+        // "Latest assessment", "the review backs no closure yet" and the freshness of the review stay service obligations under the case lock.
+        CaseForeignKey<RiskAssessment>(b); CaseForeignKey<RiskAssessmentFinding>(b); CaseForeignKey<RiskMitigationMeasure>(b);
+        b.Entity<RiskAssessment>().HasAlternateKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id });
+        b.Entity<RiskAssessment>().HasAlternateKey(x => new { x.OrganizationId, x.EudrCaseId, x.ReviewRecordId, x.Id });
+        b.Entity<RiskAssessment>().HasIndex(x => new { x.EudrCaseId, x.Number }).IsUnique(); // The sequencing invariant: "latest" is the highest Number.
+        b.Entity<RiskAssessment>().HasIndex(x => x.ReviewRecordId);
+        b.Entity<RiskAssessment>().HasOne<ReviewRecord>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.ReviewRecordId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<RiskAssessment>().Property(x => x.CriteriaCatalogueId).HasMaxLength(100);
+        b.Entity<RiskAssessment>().Property(x => x.CriteriaCatalogueVersion).HasMaxLength(50);
+        b.Entity<RiskAssessment>().Property(x => x.Rationale).HasMaxLength(4000);
+        b.Entity<RiskAssessment>().ToTable("RiskAssessments", t =>
+        {
+            t.HasCheckConstraint("CK_RiskAssessments_NonblankRationale", "btrim(\"Rationale\") <> ''");
+            t.HasCheckConstraint("CK_RiskAssessments_MitigationNumber", "\"ConsideredMitigationThroughNumber\" IS NULL OR \"ConsideredMitigationThroughNumber\" > 0");
+        });
+        b.Entity<RiskAssessmentFinding>().HasOne<RiskAssessment>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.RiskAssessmentId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<RiskAssessmentFinding>().HasIndex(x => new { x.RiskAssessmentId, x.CriterionCode }).IsUnique(); // One finding per criterion and assessment.
+        b.Entity<RiskAssessmentFinding>().Property(x => x.CriterionCode).HasMaxLength(100);
+        b.Entity<RiskAssessmentFinding>().Property(x => x.Note).HasMaxLength(2000);
+        b.Entity<RiskAssessmentFinding>().ToTable("RiskAssessmentFindings", t =>
+        {
+            t.HasCheckConstraint("CK_RiskAssessmentFindings_NonblankNote", "\"Note\" IS NULL OR btrim(\"Note\") <> ''");
+            t.HasCheckConstraint("CK_RiskAssessmentFindings_NoteRequired", "\"Finding\" = 0 OR \"Note\" IS NOT NULL"); // 0 = NoConcern; Concern and InsufficientInformation need a note
+        });
+        b.Entity<RiskMitigationMeasure>().HasOne<RiskAssessment>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.RiskAssessmentId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<RiskMitigationMeasure>().HasOne<CaseDocument>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.EvidenceDocumentId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.Id }).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
+        b.Entity<RiskMitigationMeasure>().HasIndex(x => new { x.EudrCaseId, x.Number }).IsUnique();
+        b.Entity<RiskMitigationMeasure>().HasIndex(x => x.RiskAssessmentId);
+        b.Entity<RiskMitigationMeasure>().Property(x => x.Description).HasMaxLength(4000);
+        b.Entity<RiskMitigationMeasure>().ToTable("RiskMitigationMeasures", t => t.HasCheckConstraint("CK_RiskMitigationMeasures_NonblankDescription", "btrim(\"Description\") <> ''"));
+        // The closure -> assessment consistency FK (see above) and its backstops: an assessment backs at most one closure, and only an ExternalDdsCompleted closure (Outcome 0) carries one.
+        b.Entity<CaseClosure>().HasOne<RiskAssessment>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.EudrCaseId, x.ReviewRecordId, x.RiskAssessmentId }).HasPrincipalKey(x => new { x.OrganizationId, x.EudrCaseId, x.ReviewRecordId, x.Id }).OnDelete(DeleteBehavior.Restrict).IsRequired(false);
+        b.Entity<CaseClosure>().HasIndex(x => x.RiskAssessmentId).IsUnique().HasFilter("\"RiskAssessmentId\" IS NOT NULL");
+        b.Entity<CaseClosure>().ToTable("CaseClosures", t => t.HasCheckConstraint("CK_CaseClosures_RiskAssessmentOutcome", "\"RiskAssessmentId\" IS NULL OR \"Outcome\" = 0"));
         foreach (var type in b.Model.GetEntityTypes())
         foreach (var property in type.GetProperties().Where(p => p.ClrType == typeof(string) && p.GetMaxLength() == null && p.GetColumnType() != "jsonb"))
             property.SetMaxLength(4000);
@@ -371,6 +412,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
     {
         if (entry.State is EntityState.Modified or EntityState.Deleted) throw new InvalidOperationException("Concern history is immutable; record a new concern fact.");
     }
+    // Risk assessments, their findings and mitigation measures are fully immutable and never deleted: a later decision is a new assessment, a correction is a new measure. Application-level only,
+    // like the guards above: other save overloads, bulk writes and raw SQL bypass it (the unique indexes, CHECKs and Restrict foreign keys are the database backstop).
+    private static void EnforceRiskHistoryImmutable(Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<Entity> entry)
+    {
+        if (entry.State is EntityState.Modified or EntityState.Deleted) throw new InvalidOperationException("Risk history is immutable; record a new risk assessment or mitigation measure.");
+    }
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         foreach (var entry in ChangeTracker.Entries<Entity>())
@@ -380,6 +427,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
             if (entry.Entity is CaseDocument or GeoSubmission or SupplierSubmission or PlotRevision or CaseLot or CaseMasterDataVersion or CaseApplicability or CaseRecipientStatement or CaseEvidenceLink or CaseArchival or ExternalDdsRecord) EnforceRetainedEvidence(entry);
             if (entry.Entity is CaseClosure or CaseReopening) EnforceLifecycleHistoryImmutable(entry);
             if (entry.Entity is CaseConcern or ConcernAction or ConcernNotification or ConcernResolution) EnforceConcernHistoryImmutable(entry);
+            if (entry.Entity is RiskAssessment or RiskAssessmentFinding or RiskMitigationMeasure) EnforceRiskHistoryImmutable(entry);
             if (entry.Entity is CaseRecipient or OperatorProfile) EnforceCompletenessFacts(entry);
             if (entry.Entity is CaseRevision or CaseRevisionDocument or CaseRevisionEvidenceLink or ReviewRecord) EnforceReviewHistoryImmutable(entry);
             if (entry.Entity is Producer or ProductionPlot) EnforceProvenanceIdentity(entry);

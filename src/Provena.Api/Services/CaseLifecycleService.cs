@@ -13,7 +13,8 @@ namespace Provena.Api.Services;
 // lock FOR UPDATE (404); the state preconditions (409); body shape (400); then the optimistic checks and the write. The case lock serializes these writes with every other case write
 // (public supplier writes, lots, reviews, ...), so a close either sees a dossier change as Stale or the change sees the case Closed.
 // A closure is backed by exactly one Owner review that is the LATEST review (highest CaseRevision.Number), is Current for the present dossier (fingerprint freshness under the review's
-// own fingerprint version) and has not backed a closure before. ReadyForExport is not a gate, and nothing here is a legal-compliance, risk, release or DDS-submission decision.
+// own fingerprint version) and has not backed a closure before. An ExternalDdsCompleted closure is additionally backed by a Negligible risk assessment of that same review (Risk Assessment v1).
+// ReadyForExport is not a gate, and nothing here is a legal-compliance, release or DDS-submission decision.
 // Closing and archiving revoke active supplier links; reopening and unarchiving never restore them. Closure and reopening rows are immutable; an archive period is retired one way.
 public sealed class CaseLifecycleService(AppDbContext db, TenantContext tenant, CaseService cases, OwnerGate owner, CompletenessService completeness, ReviewFreshnessService freshness,
     EudrCaseStatusService statuses, CaseLifecycleReadService reads, AuditService audit,
@@ -43,7 +44,7 @@ public sealed class CaseLifecycleService(AppDbContext db, TenantContext tenant, 
         var latest = await freshness.Latest(caseId, ct) ?? throw ApiException.Conflict("No Owner review exists for this case; record a review before closing it.");
         if (request.ExpectedReviewId != latest.Record.Id) throw ApiException.Conflict("Review history changed since it was loaded");
         // One review backs at most one closure, even after a reopen: a reopened case needs a new review of what it is now.
-        if (await db.CaseClosures.AnyAsync(x => x.ReviewRecordId == latest.Record.Id, ct)) throw ApiException.Conflict("This review already backs a closure; record a new review before closing the case again.");
+        if (await db.CaseClosures.AnyAsync(x => x.ReviewRecordId == latest.Record.Id, ct)) throw CaseClosurePolicy.ReviewAlreadyBacksClosure();
         var outcome = CaseClosurePolicy.Outcome(latest.Record.Decision) ?? throw ApiException.Conflict("A review that returned the dossier for correction cannot close the case.");
         if (CaseClosurePolicy.ReferenceError(outcome, request.ExternalDdsReference) is { } referenceError)
             throw new ValidationException([new FluentValidation.Results.ValidationFailure(nameof(CloseCaseInput.ExternalDdsReference), referenceError)]); // 400, same shape as the validators
@@ -56,6 +57,13 @@ public sealed class CaseLifecycleService(AppDbContext db, TenantContext tenant, 
         if (CaseClosurePolicy.QuantityError(outcome, state.Evaluation.QuantityReconciliation) is { } quantityError)
             throw new ApiException(409, quantityError, new { reason = "QuantityNotReconciled", quantityReconciliation = state.Evaluation.QuantityReconciliation });
 
+        // Risk Assessment v1: the LATEST risk assessment must rest on exactly the latest review and be Negligible. Evaluated after the quantity gate and before the External DDS gate, under the
+        // same case lock. No timestamp is compared with the External DDS record. The closure pins this exact assessment (the composite FK proves it was made on the closure's own review).
+        var riskAssessment = outcome == CaseClosureOutcome.ExternalDdsCompleted
+            ? await db.RiskAssessments.AsNoTracking().Where(x => x.EudrCaseId == caseId).OrderByDescending(x => x.Number).FirstOrDefaultAsync(ct) : null;
+        if (CaseClosurePolicy.RiskError(outcome, latest.Record.Id, riskAssessment) is { } riskError)
+            throw new ApiException(409, riskError.Message, new { reason = riskError.Reason, riskAssessment = riskAssessment == null ? null : RiskAssessmentService.ToSummary(riskAssessment) });
+
         // External DDS Record v1: the structured current record (not the request's free text) is authoritative for ExternalDdsCompleted. Read under the same case lock.
         var ddsRecord = outcome == CaseClosureOutcome.ExternalDdsCompleted ? await db.ExternalDdsRecords.AsNoTracking().Current().SingleOrDefaultAsync(x => x.EudrCaseId == caseId, ct) : null;
         if (CaseClosurePolicy.ExternalDdsError(outcome, latest.Record.Id, ddsRecord, request.ExternalDdsReference) is { } ddsError)
@@ -66,12 +74,12 @@ public sealed class CaseLifecycleService(AppDbContext db, TenantContext tenant, 
         var closure = new CaseClosure
         {
             OrganizationId = tenant.OrganizationId, EudrCaseId = caseId, Number = number, Outcome = outcome, ReviewRecordId = latest.Record.Id,
-            ExternalDdsReference = ddsRecord?.ReferenceNumber, ClosedByUserId = tenant.UserId!.Value, ClosedAtUtc = now,
+            ExternalDdsReference = ddsRecord?.ReferenceNumber, RiskAssessmentId = riskAssessment?.Id, ClosedByUserId = tenant.UserId!.Value, ClosedAtUtc = now,
         };
         db.CaseClosures.Add(closure);
         var revoked = await RevokeActiveRequests(caseId, now, ct);
         c.Status = EudrCaseStatus.Closed; c.UpdatedAtUtc = now;
-        audit.Add(caseId, "CaseClosed", $"Case closed (closure {closure.Id}, number {number}) as {outcome} on review {latest.Record.Id}{(ddsRecord == null ? "" : $" and external DDS record {ddsRecord.Id}")}; status was {previous}; {revoked} active supplier request(s) revoked. This is not a DDS submission.");
+        audit.Add(caseId, "CaseClosed", $"Case closed (closure {closure.Id}, number {number}) as {outcome} on review {latest.Record.Id}{(riskAssessment == null ? "" : $", risk assessment {riskAssessment.Id}")}{(ddsRecord == null ? "" : $" and external DDS record {ddsRecord.Id}")}; status was {previous}; {revoked} active supplier request(s) revoked. This is not a DDS submission.");
         await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
         return CaseLifecycleReadService.ToDto(closure, latest.Record.Decision, latest.Revision.Number, null);
     }

@@ -502,6 +502,9 @@ namespace Provena.Api.Data.Migrations
                     b.Property<Guid>("ReviewRecordId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("RiskAssessmentId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -512,12 +515,19 @@ namespace Provena.Api.Data.Migrations
                     b.HasIndex("ReviewRecordId")
                         .IsUnique();
 
+                    b.HasIndex("RiskAssessmentId")
+                        .IsUnique()
+                        .HasFilter("\"RiskAssessmentId\" IS NOT NULL");
+
                     b.HasIndex("EudrCaseId", "Number")
                         .IsUnique();
 
-                    b.HasIndex("OrganizationId", "EudrCaseId", "ReviewRecordId");
+                    b.HasIndex("OrganizationId", "EudrCaseId", "ReviewRecordId", "RiskAssessmentId");
 
-                    b.ToTable("CaseClosures");
+                    b.ToTable("CaseClosures", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CaseClosures_RiskAssessmentOutcome", "\"RiskAssessmentId\" IS NULL OR \"Outcome\" = 0");
+                        });
                 });
 
             modelBuilder.Entity("Provena.Api.Domain.CaseConcern", b =>
@@ -2071,6 +2081,181 @@ namespace Provena.Api.Data.Migrations
                     b.ToTable("ReviewRecords");
                 });
 
+            modelBuilder.Entity("Provena.Api.Domain.RiskAssessment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AssessedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("AssessedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Conclusion")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ConsideredMitigationThroughNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CriteriaCatalogueId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("CriteriaCatalogueVersion")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("EudrCaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Rationale")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<Guid>("ReviewRecordId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("OrganizationId", "Id");
+
+                    b.HasIndex("ReviewRecordId");
+
+                    b.HasIndex("EudrCaseId", "Number")
+                        .IsUnique();
+
+                    b.ToTable("RiskAssessments", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_RiskAssessments_MitigationNumber", "\"ConsideredMitigationThroughNumber\" IS NULL OR \"ConsideredMitigationThroughNumber\" > 0");
+
+                            t.HasCheckConstraint("CK_RiskAssessments_NonblankRationale", "btrim(\"Rationale\") <> ''");
+                        });
+                });
+
+            modelBuilder.Entity("Provena.Api.Domain.RiskAssessmentFinding", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CriterionCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("EudrCaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Finding")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RiskAssessmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("OrganizationId", "Id");
+
+                    b.HasIndex("RiskAssessmentId", "CriterionCode")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "EudrCaseId", "RiskAssessmentId");
+
+                    b.ToTable("RiskAssessmentFindings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_RiskAssessmentFindings_NonblankNote", "\"Note\" IS NULL OR btrim(\"Note\") <> ''");
+
+                            t.HasCheckConstraint("CK_RiskAssessmentFindings_NoteRequired", "\"Finding\" = 0 OR \"Note\" IS NOT NULL");
+                        });
+                });
+
+            modelBuilder.Entity("Provena.Api.Domain.RiskMitigationMeasure", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<Guid>("EudrCaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("EvidenceDocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("PerformedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RecordedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RiskAssessmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("OrganizationId", "Id");
+
+                    b.HasIndex("RiskAssessmentId");
+
+                    b.HasIndex("EudrCaseId", "Number")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "EudrCaseId", "EvidenceDocumentId");
+
+                    b.HasIndex("OrganizationId", "EudrCaseId", "RiskAssessmentId");
+
+                    b.ToTable("RiskMitigationMeasures", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_RiskMitigationMeasures_NonblankDescription", "btrim(\"Description\") <> ''");
+                        });
+                });
+
             modelBuilder.Entity("Provena.Api.Domain.Shipment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2426,6 +2611,12 @@ namespace Provena.Api.Data.Migrations
                         .HasPrincipalKey("OrganizationId", "EudrCaseId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.RiskAssessment", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId", "ReviewRecordId", "RiskAssessmentId")
+                        .HasPrincipalKey("OrganizationId", "EudrCaseId", "ReviewRecordId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Provena.Api.Domain.CaseConcern", b =>
@@ -3034,6 +3225,81 @@ namespace Provena.Api.Data.Migrations
                     b.HasOne("Provena.Api.Domain.CaseRevision", null)
                         .WithMany()
                         .HasForeignKey("OrganizationId", "EudrCaseId", "CaseRevisionId")
+                        .HasPrincipalKey("OrganizationId", "EudrCaseId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Provena.Api.Domain.RiskAssessment", b =>
+                {
+                    b.HasOne("Provena.Api.Domain.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.EudrCase", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.ReviewRecord", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId", "ReviewRecordId")
+                        .HasPrincipalKey("OrganizationId", "EudrCaseId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Provena.Api.Domain.RiskAssessmentFinding", b =>
+                {
+                    b.HasOne("Provena.Api.Domain.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.EudrCase", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.RiskAssessment", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId", "RiskAssessmentId")
+                        .HasPrincipalKey("OrganizationId", "EudrCaseId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Provena.Api.Domain.RiskMitigationMeasure", b =>
+                {
+                    b.HasOne("Provena.Api.Domain.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.EudrCase", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId")
+                        .HasPrincipalKey("OrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Provena.Api.Domain.CaseDocument", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId", "EvidenceDocumentId")
+                        .HasPrincipalKey("OrganizationId", "EudrCaseId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Provena.Api.Domain.RiskAssessment", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId", "EudrCaseId", "RiskAssessmentId")
                         .HasPrincipalKey("OrganizationId", "EudrCaseId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();

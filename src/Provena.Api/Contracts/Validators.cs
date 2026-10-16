@@ -292,3 +292,28 @@ public sealed class ResolveConcernValidator : AbstractValidator<ResolveConcernIn
         RuleFor(x => x.Rationale).NotEmpty().MaximumLength(4000);
     }
 }
+
+// Risk Assessment & Mitigation v1. Run on the trimmed input (instants already normalized to UTC). The finding set, the note rules and the Negligible/InsufficientInformation contradiction live in
+// RiskAssessmentRules (pure); the future-time rule needs the clock, so RiskAssessmentService applies it with the same 400 shape. Values are never echoed in messages.
+public sealed class CreateRiskAssessmentValidator : AbstractValidator<CreateRiskAssessmentInput>
+{
+    public CreateRiskAssessmentValidator()
+    {
+        RuleFor(x => x.ReviewId).NotNull().NotEqual(Guid.Empty).WithMessage("reviewId is the id of the latest Owner review the assessment rests on.");
+        RuleFor(x => x.ExpectedLatestRiskAssessmentId).NotEqual(Guid.Empty);
+        RuleFor(x => x.ExpectedLatestMitigationMeasureId).NotEqual(Guid.Empty);
+        RuleFor(x => x.CriteriaCatalogueVersion).NotEmpty().MaximumLength(50);
+        RuleFor(x => x.Conclusion).NotNull().IsInEnum();
+        RuleFor(x => x.Rationale).NotEmpty().MaximumLength(4000);
+    }
+}
+public sealed class RecordRiskMitigationValidator : AbstractValidator<RecordRiskMitigationInput>
+{
+    public RecordRiskMitigationValidator()
+    {
+        RuleFor(x => x.ExpectedRiskAssessmentId).NotNull().NotEqual(Guid.Empty).WithMessage("expectedRiskAssessmentId is the id of the latest risk assessment the measure answers.");
+        RuleFor(x => x.Description).NotEmpty().MaximumLength(4000);
+        RuleFor(x => x.PerformedAtUtc).NotNull().WithMessage("performedAtUtc is the time the measure was performed.");
+        RuleFor(x => x.EvidenceDocumentId).NotEqual(Guid.Empty);
+    }
+}

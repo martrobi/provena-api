@@ -13,8 +13,9 @@ public enum ArchivedFilter { Exclude, Only, Include }
 
 // ---- responses --------------------------------------------------------------------------------------------------------------------------
 public sealed record CaseReopeningDto(Guid ReopeningId, Guid ClosureId, string Reason, Guid ReopenedByUserId, DateTimeOffset ReopenedAtUtc);
-// The closure, the Owner review that backed it (id, revision number, decision) and, when it was reopened, the reopening. The outcome is derived from the review decision.
-public sealed record CaseClosureDto(Guid ClosureId, int Number, CaseClosureOutcome Outcome, Guid ReviewId, int ReviewRevisionNumber, ReviewDecision ReviewDecision, string? ExternalDdsReference,
+// The closure, the Owner review that backed it (id, revision number, decision), the risk assessment that backed an ExternalDdsCompleted closure (null for legacy closures and the other outcomes) and,
+// when it was reopened, the reopening. The outcome is derived from the review decision.
+public sealed record CaseClosureDto(Guid ClosureId, int Number, CaseClosureOutcome Outcome, Guid ReviewId, int ReviewRevisionNumber, ReviewDecision ReviewDecision, string? ExternalDdsReference, Guid? RiskAssessmentId,
     Guid ClosedByUserId, DateTimeOffset ClosedAtUtc, CaseReopeningDto? Reopening);
 public sealed record CaseArchivalDto(Guid ArchivalId, int Number, string Reason, Guid? ArchivedByUserId, DateTimeOffset ArchivedAtUtc, string? UnarchiveReason, Guid? UnarchivedByUserId, DateTimeOffset? UnarchivedAtUtc);
 // Reconstructable lifecycle history: every closure (with its reopening) and every archive period, oldest first. CurrentClosure is set only while the case is Closed.

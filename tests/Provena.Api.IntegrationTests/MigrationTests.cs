@@ -410,7 +410,7 @@ INSERT INTO "CaseDossiers" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId",
         var seed = await SeedEvidenceAtInitialSchema(db);
         await db.Database.MigrateAsync();
         await InsertDossierGraph(db, seed);
-        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ExternalDdsRecords", "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "ContributionPlots", "LotContributions", "CaseLots", "CaseDossiers" """);
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "RiskMitigationMeasures", "RiskAssessmentFindings", "RiskAssessments", "ExternalDdsRecords", "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "ContributionPlots", "LotContributions", "CaseLots", "CaseDossiers" """);
 
         await db.GetService<IMigrator>().MigrateAsync(ProvenanceMigration);
 
@@ -509,7 +509,7 @@ INSERT INTO "CaseRecipients" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId
     }
     private static async Task ClearCompleteness(AppDbContext db)
     {
-        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ConcernResolutions", "ConcernNotifications", "ConcernActions", "CaseConcerns", "ExternalDdsRecords", "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "CaseRecipients", "CaseRecipientStatements", "CaseEvidenceLinks", "CaseApplicabilities", "CaseMasterDataVersions", "OperatorProfiles" """);
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "RiskMitigationMeasures", "RiskAssessmentFindings", "RiskAssessments", "ConcernResolutions", "ConcernNotifications", "ConcernActions", "CaseConcerns", "ExternalDdsRecords", "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions", "CaseRecipients", "CaseRecipientStatements", "CaseEvidenceLinks", "CaseApplicabilities", "CaseMasterDataVersions", "OperatorProfiles" """);
         await db.Database.ExecuteSqlRawAsync("""UPDATE "Suppliers" SET "PostalAddress" = NULL""");
     }
 
@@ -688,7 +688,7 @@ INSERT INTO "CaseRevisions" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId"
         await InsertDossierGraph(db, seed);
         await InsertCompletenessRow(db, seed, "CaseApplicabilities"); await InsertCompletenessRow(db, seed, "CaseMasterDataVersions");
         await InsertReviewRow(db, seed, "ReviewRecords");
-        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "ExternalDdsRecords", "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions" """);
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "RiskMitigationMeasures", "RiskAssessmentFindings", "RiskAssessments", "ExternalDdsRecords", "CaseReopenings", "CaseClosures", "ReviewRecords", "CaseRevisionEvidenceLinks", "CaseRevisionDocuments", "CaseRevisions" """);
 
         await db.GetService<IMigrator>().MigrateAsync(CompletenessMigration);
 
@@ -739,7 +739,7 @@ INSERT INTO "CaseRevisions" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId"
         Assert.Contains(constraints, c => c.Contains(" f ") && c.Contains("(\"OrganizationId\", \"EudrCaseId\", \"ReviewRecordId\") REFERENCES \"ReviewRecords\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")"));
         Assert.Contains(constraints, c => c.Contains(" f ") && c.Contains("(\"OrganizationId\", \"EudrCaseId\", \"CaseClosureId\") REFERENCES \"CaseClosures\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")"));
         var foreignKeys = constraints.Where(c => c.Contains(" f ") && LifecycleTables.Any(t => c.StartsWith($"\"{t}\" "))).ToList();
-        Assert.Equal(8, foreignKeys.Count); // closures: case, organization, review; reopenings: closure, case, organization; archivals: case, organization
+        Assert.Equal(9, foreignKeys.Count); // closures: case, organization, review, risk assessment (Risk Assessment v1); reopenings: closure, case, organization; archivals: case, organization
         Assert.All(foreignKeys, f => Assert.Contains("ON DELETE RESTRICT", f));
     }
 
@@ -1083,6 +1083,110 @@ INSERT INTO "CaseRecipients" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId
         Assert.DoesNotContain(ConcernMigration, await db.Database.GetAppliedMigrationsAsync());
         Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('CaseConcerns','ConcernActions','ConcernNotifications','ConcernResolutions')").ToListAsync());
         Assert.Equal(1, await Count(db, "CaseRecipients"));
+    }
+
+    // ---- Risk Assessment & Mitigation v1 ---------------------------------------------------------------------------------------------------
+    private const string RiskMigration = "20261016000117_RiskAssessmentAndMitigation";
+    private static readonly string[] RiskTables = ["RiskAssessments", "RiskAssessmentFindings", "RiskMitigationMeasures"];
+
+    [Fact]
+    public async Task Clean_database_has_the_risk_tables_the_closure_consistency_foreign_key_and_the_backstop_indexes_and_checks()
+    {
+        await using var db = NewContext();
+        Assert.False(db.Database.HasPendingModelChanges(), "The generated snapshot must match the DbContext.");
+        await db.Database.MigrateAsync();
+        Assert.Contains(RiskMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+        async Task<string> Index(string name) => await db.Database.SqlQueryRaw<string>("SELECT indexdef AS \"Value\" FROM pg_indexes WHERE indexname = {0}", name).SingleAsync();
+        Assert.Contains("UNIQUE", await Index("IX_RiskAssessments_EudrCaseId_Number")); // per-case assessment number
+        Assert.Contains("UNIQUE", await Index("IX_RiskMitigationMeasures_EudrCaseId_Number")); // per-case measure number
+        var finding = await Index("IX_RiskAssessmentFindings_RiskAssessmentId_CriterionCode"); Assert.Contains("UNIQUE", finding); Assert.Contains("(\"RiskAssessmentId\", \"CriterionCode\")", finding); // one finding per criterion
+        var backed = await Index("IX_CaseClosures_RiskAssessmentId"); Assert.Contains("UNIQUE", backed); Assert.Contains("\"RiskAssessmentId\" IS NOT NULL", backed); // an assessment backs at most one closure
+        async Task<List<string>> Constraints(string table) => await db.Database.SqlQueryRaw<string>($"SELECT contype::text || ' ' || conname || ' ' || pg_get_constraintdef(oid) AS \"Value\" FROM pg_constraint WHERE conrelid = '\"{table}\"'::regclass").ToListAsync();
+        foreach (var (table, foreignKeys, checks) in new[] { ("RiskAssessments", 3, 2), ("RiskAssessmentFindings", 3, 2), ("RiskMitigationMeasures", 4, 1) })
+        {
+            var constraints = await Constraints(table);
+            var fks = constraints.Where(x => x.StartsWith("f ")).ToList();
+            Assert.Equal(foreignKeys, fks.Count); Assert.All(fks, x => Assert.Contains("ON DELETE RESTRICT", x));
+            Assert.Equal(checks, constraints.Count(x => x.StartsWith("c ")));
+        }
+        var assessments = await Constraints("RiskAssessments");
+        Assert.Contains(assessments, x => x.StartsWith("u ") && x.Contains("UNIQUE (\"OrganizationId\", \"EudrCaseId\", \"Id\")"));
+        Assert.Contains(assessments, x => x.StartsWith("u ") && x.Contains("UNIQUE (\"OrganizationId\", \"EudrCaseId\", \"ReviewRecordId\", \"Id\")")); // the principal of the closure FK
+        Assert.Contains(assessments, x => x.StartsWith("f ") && x.Contains("FOREIGN KEY (\"OrganizationId\", \"EudrCaseId\", \"ReviewRecordId\") REFERENCES \"ReviewRecords\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")"));
+        var closures = await Constraints("CaseClosures");
+        Assert.Contains(closures, x => x.StartsWith("f ") && x.Contains("FOREIGN KEY (\"OrganizationId\", \"EudrCaseId\", \"ReviewRecordId\", \"RiskAssessmentId\") REFERENCES \"RiskAssessments\"(\"OrganizationId\", \"EudrCaseId\", \"ReviewRecordId\", \"Id\") ON DELETE RESTRICT"));
+        Assert.Contains(closures, x => x.StartsWith("c ") && x.Contains("CK_CaseClosures_RiskAssessmentOutcome")); // only ExternalDdsCompleted carries an assessment
+        var measures = await Constraints("RiskMitigationMeasures");
+        Assert.Contains(measures, x => x.Contains("REFERENCES \"Documents\"(\"OrganizationId\", \"EudrCaseId\", \"Id\")")); // evidence of the row's own case
+    }
+
+    [Fact]
+    public async Task The_risk_migration_is_purely_additive_over_existing_data_and_its_down_drops_only_its_objects()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        await SeedEvidenceAtInitialSchema(db);
+        await db.GetService<IMigrator>().MigrateAsync(ConcernMigration);
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('RiskAssessments','RiskAssessmentFindings','RiskMitigationMeasures')").ToListAsync());
+        Assert.Equal(0, await db.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM information_schema.columns WHERE table_name = 'CaseClosures' AND column_name = 'RiskAssessmentId'").SingleAsync());
+
+        await db.Database.MigrateAsync(); // no backfill: nothing is invented for any existing case
+        foreach (var table in RiskTables) Assert.Equal(0, await Count(db, table));
+        Assert.Equal(1, await Count(db, "Cases")); Assert.Equal(1, await Count(db, "Documents"));
+        Assert.Equal("YES", await db.Database.SqlQueryRaw<string>("SELECT is_nullable AS \"Value\" FROM information_schema.columns WHERE table_name = 'CaseClosures' AND column_name = 'RiskAssessmentId'").SingleAsync());
+
+        await db.GetService<IMigrator>().MigrateAsync(ConcernMigration);
+        Assert.DoesNotContain(RiskMigration, await db.Database.GetAppliedMigrationsAsync()); Assert.Contains(ConcernMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('RiskAssessments','RiskAssessmentFindings','RiskMitigationMeasures')").ToListAsync());
+        Assert.Equal(0, await db.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM information_schema.columns WHERE table_name = 'CaseClosures' AND column_name = 'RiskAssessmentId'").SingleAsync());
+        Assert.Contains("(\"OrganizationId\", \"EudrCaseId\", \"ReviewRecordId\")", await db.Database.SqlQueryRaw<string>("SELECT indexdef AS \"Value\" FROM pg_indexes WHERE indexname = 'IX_CaseClosures_OrganizationId_EudrCaseId_ReviewRecordId'").SingleAsync()); // the earlier index is back
+        Assert.Equal(1, await Count(db, "Cases")); Assert.Equal(1, await Count(db, "Documents"));
+    }
+
+    // Every scenario holds an assessment (the parent of the other rows and of a closure's reference); the named case is what additionally exists, and any retained risk row blocks the rollback.
+    [Theory]
+    [InlineData("RiskAssessments")]
+    [InlineData("RiskAssessmentFindings")]
+    [InlineData("RiskMitigationMeasures")]
+    [InlineData("ClosureReference")]
+    public async Task Risk_down_is_refused_while_any_risk_row_or_closure_reference_exists_and_succeeds_when_empty(string populated)
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.GetService<IMigrator>().MigrateAsync(RiskMigration);
+        await InsertReviewRow(db, seed, "ReviewRecords");
+        var org = seed.OrganizationId; var caseId = seed.CaseId; var assessment = Guid.NewGuid();
+        var review = await db.Database.SqlQueryRaw<Guid>("""SELECT "Id" AS "Value" FROM "ReviewRecords" """).SingleAsync();
+        await db.Database.ExecuteSqlRawAsync($"""
+INSERT INTO "RiskAssessments" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","Number","ReviewRecordId","CriteriaCatalogueId","CriteriaCatalogueVersion","Conclusion","Rationale","AssessedByUserId","AssessedAtUtc") VALUES ('{assessment}', now(), now(), '{org}', '{caseId}', 1, '{review}', 'provena-pilot-risk-criteria', '1', 0, 'Reasoned.', '{Guid.NewGuid()}', now())
+""");
+        switch (populated)
+        {
+            case "RiskAssessmentFindings":
+                await db.Database.ExecuteSqlRawAsync($"""INSERT INTO "RiskAssessmentFindings" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","RiskAssessmentId","CriterionCode","Finding") VALUES ('{Guid.NewGuid()}', now(), now(), '{org}', '{caseId}', '{assessment}', 'EVIDENCE_RELIABILITY', 0)"""); break;
+            case "RiskMitigationMeasures":
+                await db.Database.ExecuteSqlRawAsync($"""INSERT INTO "RiskMitigationMeasures" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","Number","RiskAssessmentId","Description","PerformedAtUtc","RecordedByUserId") VALUES ('{Guid.NewGuid()}', now(), now(), '{org}', '{caseId}', 1, '{assessment}', 'd', now(), '{Guid.NewGuid()}')"""); break;
+            case "ClosureReference":
+                await db.Database.ExecuteSqlRawAsync($"""INSERT INTO "CaseClosures" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationId","EudrCaseId","Number","Outcome","ReviewRecordId","RiskAssessmentId","ClosedByUserId","ClosedAtUtc") VALUES ('{Guid.NewGuid()}', now(), now(), '{org}', '{caseId}', 1, 0, '{review}', '{assessment}', '{Guid.NewGuid()}', now())"""); break;
+        }
+
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => db.GetService<IMigrator>().MigrateAsync(ConcernMigration));
+        Assert.Contains("Risk records exist; rollback would destroy history", failure.ToString());
+        Assert.Contains(RiskMigration, await db.Database.GetAppliedMigrationsAsync()); // the schema and the retained rows survive the refusal
+        Assert.Equal(1, await Count(db, "RiskAssessments"));
+        if (populated is "RiskAssessmentFindings" or "RiskMitigationMeasures") Assert.Equal(1, await Count(db, populated));
+        if (populated == "ClosureReference") Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM "CaseClosures" WHERE "RiskAssessmentId" IS NOT NULL""").SingleAsync());
+        Assert.Equal("Reasoned.", await db.Database.SqlQueryRaw<string>("""SELECT "Rationale" AS "Value" FROM "RiskAssessments" """).SingleAsync());
+
+        // With no risk record and no closure the same rollback succeeds.
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE TABLE "CaseReopenings", "CaseClosures", "RiskMitigationMeasures", "RiskAssessmentFindings", "RiskAssessments" """);
+        await db.GetService<IMigrator>().MigrateAsync(ConcernMigration);
+        Assert.DoesNotContain(RiskMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await db.Database.SqlQueryRaw<string>("SELECT table_name AS \"Value\" FROM information_schema.tables WHERE table_name IN ('RiskAssessments','RiskAssessmentFindings','RiskMitigationMeasures')").ToListAsync());
+        Assert.Equal(0, await db.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM information_schema.columns WHERE table_name = 'CaseClosures' AND column_name = 'RiskAssessmentId'").SingleAsync());
+        Assert.Equal(1, await Count(db, "ReviewRecords")); Assert.Equal(1, await Count(db, "Cases"));
     }
 #pragma warning restore EF1002
 }

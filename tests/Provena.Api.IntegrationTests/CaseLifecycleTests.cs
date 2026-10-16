@@ -60,7 +60,8 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
 
     private static Task<HttpResponseMessage> Close(HttpClient c, Guid caseId, Guid? expectedReviewId, string? ddsReference = null) => c.PostAsJsonAsync($"/api/eudr-cases/{caseId}/close", new { expectedReviewId, externalDdsReference = ddsReference });
     // Records the external DDS submission of the review (replacing any current record), then closes as ExternalDdsCompleted with the same reference.
-    private static async Task<HttpResponseMessage> CloseDds(HttpClient c, Guid caseId, Guid reviewId, string reference) { await ExternalDdsTestSupport.RecordOk(c, caseId, reviewId, reference); return await Close(c, caseId, reviewId, reference); }
+    // Risk Assessment v1: an ExternalDdsCompleted close also needs a Negligible assessment of the review, so this helper records one (once) before the DDS record.
+    private static async Task<HttpResponseMessage> CloseDds(HttpClient c, Guid caseId, Guid reviewId, string reference) { await RiskTestSupport.EnsureNegligible(c, caseId, reviewId); await ExternalDdsTestSupport.RecordOk(c, caseId, reviewId, reference); return await Close(c, caseId, reviewId, reference); }
     private static Task<HttpResponseMessage> Reopen(HttpClient c, Guid caseId, Guid? expectedClosureId, string? reason = "The data needs a correction.") => c.PostAsJsonAsync($"/api/eudr-cases/{caseId}/reopen", new { expectedClosureId, reason });
     private static Task<HttpResponseMessage> Archive(HttpClient c, Guid caseId, string? reason = "Retention hold.") => c.PostAsJsonAsync($"/api/eudr-cases/{caseId}/archive", new { reason });
     private static Task<HttpResponseMessage> Unarchive(HttpClient c, Guid caseId, string? reason = "Needed again.") => c.PostAsJsonAsync($"/api/eudr-cases/{caseId}/unarchive", new { reason });
@@ -185,6 +186,7 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
     {
         var (o, w, reviewId) = await Reviewed(decision); var c = o.Client; var needsReference = outcome == "ExternalDdsCompleted";
         var link = await Json(await c.PostAsync($"/api/eudr-cases/{w.CaseId}/supplier-request", null)); var token = link.GetProperty("publicUrl").GetString()!.Split('/').Last();
+        if (needsReference) await RiskTestSupport.EnsureNegligible(c, w.CaseId, reviewId); // the risk gate sits before the External DDS gate this test is about
         // The reference rule: other outcomes reject a legacy reference (400); ExternalDdsCompleted no longer takes the free text as its source, so without a recorded External DDS record it answers 409 whatever the field holds.
         foreach (var reference in needsReference ? new string?[] { null, "", "   ", "DDS-ABC-1" } : new string?[] { "DDS-1" })
         {
@@ -333,7 +335,9 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
 
         // The old review still describes the dossier (Current) but backs a closure already: closing again needs a NEW review, even though nothing changed.
         Assert.Equal("Current", (await Completeness(c, w.CaseId)).GetProperty("reviewFreshness").GetString());
-        Assert.Contains("already backs a closure", (await Problem(await Close(c, w.CaseId, review1, "DDS-SECOND"), HttpStatusCode.Conflict)).GetProperty("detail").GetString());
+        var backed = await Problem(await Close(c, w.CaseId, review1, "DDS-SECOND"), HttpStatusCode.Conflict);
+        Assert.Equal("This review already backs a closure; record a new review before closing the case again.", backed.GetProperty("detail").GetString()); // the detail text is unchanged
+        Assert.Equal("ReviewAlreadyBacksClosure", backed.GetProperty("errors").GetProperty("reason").GetString()); // and now typed
         var review2 = await Review(c, w.CaseId, "AcceptedAsCompleteUnderPolicy");
         var closure2 = await Json(await CloseDds(c, w.CaseId, review2, "DDS-SECOND"), HttpStatusCode.Created);
         Assert.Equal(2, closure2.GetProperty("number").GetInt32()); Assert.Equal(2, closure2.GetProperty("reviewRevisionNumber").GetInt32());

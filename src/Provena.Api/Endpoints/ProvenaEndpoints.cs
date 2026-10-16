@@ -8,7 +8,7 @@ public static class ProvenaEndpoints
         var api = app.MapGroup("/api").RequireAuthorization().WithRequiredJsonBodyContentTypeCheck();
         api.MapAuthEndpoints();
         api.MapSupplierEndpoints(); api.MapProductEndpoints(); api.MapShipmentEndpoints();
-        api.MapCaseEndpoints(); api.MapCaseLifecycleEndpoints(); api.MapExternalDdsEndpoints(); api.MapConcernEndpoints(); api.MapCaseFileEndpoints(); api.MapCaseDossierEndpoints(); api.MapDashboardEndpoints();
+        api.MapCaseEndpoints(); api.MapCaseLifecycleEndpoints(); api.MapExternalDdsEndpoints(); api.MapConcernEndpoints(); api.MapRiskEndpoints(); api.MapCaseFileEndpoints(); api.MapCaseDossierEndpoints(); api.MapDashboardEndpoints();
         api.MapSupplierRequestEndpoints(); api.MapImportEndpoints();
         api.MapProducerEndpoints(); api.MapProductionPlotEndpoints();
         api.MapOperatorProfileEndpoints(); api.MapCaseFactEndpoints(); api.MapReviewEndpoints();

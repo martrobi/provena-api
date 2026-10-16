@@ -255,6 +255,7 @@ public sealed class HttpContractTests(ApiFactory factory)
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/evidence-links"), (HttpMethod.Post, $"/api/eudr-cases/{caseId}/evidence-links"), (HttpMethod.Delete, $"/api/eudr-cases/{caseId}/evidence-links/{id}"),
             (HttpMethod.Post, $"/api/eudr-cases/{caseId}/close"), (HttpMethod.Post, $"/api/eudr-cases/{caseId}/reopen"), (HttpMethod.Post, $"/api/eudr-cases/{caseId}/archive"), (HttpMethod.Post, $"/api/eudr-cases/{caseId}/unarchive"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/lifecycle"),
             (HttpMethod.Get, $"/api/eudr-cases/{caseId}/completeness"),
+            (HttpMethod.Get, $"/api/eudr-cases/{caseId}/risk"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/risk-assessments/{id}"), (HttpMethod.Post, $"/api/eudr-cases/{caseId}/risk-assessments"), (HttpMethod.Post, $"/api/eudr-cases/{caseId}/risk-mitigations"),
             (HttpMethod.Post, $"/api/eudr-cases/{caseId}/reviews"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/reviews"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/reviews/{id}"), (HttpMethod.Get, $"/api/eudr-cases/{caseId}/reviews/{id}/export"),
         };
         foreach (var (method, path) in requests)
@@ -363,12 +364,13 @@ public sealed class HttpContractTests(ApiFactory factory)
             "/api/eudr-cases/{caseId}/evidence-links", "/api/eudr-cases/{caseId}/evidence-links/{linkId}",
             "/api/eudr-cases/{caseId}/close", "/api/eudr-cases/{caseId}/reopen", "/api/eudr-cases/{caseId}/archive", "/api/eudr-cases/{caseId}/unarchive", "/api/eudr-cases/{caseId}/lifecycle",
             "/api/eudr-cases/{caseId}/completeness", "/api/eudr-cases/{caseId}/external-dds", "/api/eudr-cases/{caseId}/external-dds-history",
+            "/api/eudr-cases/{caseId}/risk", "/api/eudr-cases/{caseId}/risk-assessments", "/api/eudr-cases/{caseId}/risk-assessments/{assessmentId}", "/api/eudr-cases/{caseId}/risk-mitigations",
             "/api/eudr-cases/{caseId}/reviews", "/api/eudr-cases/{caseId}/reviews/{reviewId}", "/api/eudr-cases/{caseId}/reviews/{reviewId}/export",
             "/api/import/shipments", "/public/supplier-requests/{token}", "/public/supplier-requests/{token}/details", "/public/supplier-requests/{token}/documents",
             "/public/supplier-requests/{token}/geolocation", "/public/supplier-requests/{token}/complete",
         })
             Assert.Contains(path, paths);
-        Assert.Equal(65, paths.Count);
+        Assert.Equal(69, paths.Count);
         // The review POST reads its body by hand (so the Owner check precedes parsing); its request body must still be advertised.
         var reviewPost = document.GetProperty("paths").GetProperty("/api/eudr-cases/{caseId}/reviews").GetProperty("post");
         Assert.True(reviewPost.GetProperty("requestBody").GetProperty("content").TryGetProperty("application/json", out var reviewBody));

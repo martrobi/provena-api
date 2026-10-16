@@ -388,6 +388,7 @@ public sealed class ConcernTests(ApiFactory factory)
             decision = "AcceptedAsCompleteUnderPolicy", rationale = "Reviewed against the recorded facts.", expectedFingerprint = Fingerprint(state),
             expectedLatestReviewId = state.GetProperty("latestReview").ValueKind == JsonValueKind.Null ? (Guid?)null : state.GetProperty("latestReview").GetProperty("reviewId").GetGuid(),
         }), HttpStatusCode.Created)).GetProperty("reviewId").GetGuid();
+        await RiskTestSupport.EnsureNegligible(c, w.CaseId, reviewId);
         var recordId = await RecordOk(c, w.CaseId, reviewId, "EU-REF-ISO");
         Assert.Equal(HttpStatusCode.Created, (await c.PostAsJsonAsync($"/api/eudr-cases/{w.CaseId}/close", new { expectedReviewId = reviewId })).StatusCode);
 
