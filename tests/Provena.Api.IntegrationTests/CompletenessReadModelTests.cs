@@ -83,7 +83,7 @@ public sealed class CompletenessReadModelTests(ApiFactory factory)
         var shipment = await Json(await c.PostAsJsonAsync("/api/shipments", new { referenceNumber = reference, supplierId = supplier, productId = product, quantity = 10, unit = "Kg" }), HttpStatusCode.Created);
         var caseId = shipment.GetProperty("eudrCaseId").GetGuid(); var shipmentId = shipment.GetProperty("shipment").GetProperty("id").GetGuid();
         await Ok(c.PostAsync($"/api/eudr-cases/{caseId}/master-data/refresh", null));
-        if (o.Applicability) await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{caseId}/applicability", Application()));
+        if (o.Applicability) await Ok(ApplicabilitySupport.Put(c, caseId, Application()));
         if (o.Recipients) await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{caseId}/recipients", new { resolution = "RecipientsIdentified", recipients = new[] { new { name = "Importer GmbH", postalAddress = "Hauptstrasse 1, Berlin", email = "importer@example.test" } } }));
         Guid producer = default, plot = default, revision = default;
         if (o.Lot)
@@ -244,16 +244,16 @@ public sealed class CompletenessReadModelTests(ApiFactory factory)
         Assert.Equal("WithinSupportedScope", supported.GetProperty("applicability").GetProperty("status").GetString()); Assert.Equal(JsonValueKind.String, supported.GetProperty("applicability").GetProperty("currentVersionId").ValueKind);
         foreach (var code in new[] { "APPLICABILITY_RECORDED", "APPLICABILITY_DECIDED", "APPLICABILITY_PRODUCT_MATCH", "APPLICABILITY_IN_SCOPE", "FLOW_SUPPORTED", "PRODUCT_DESCRIPTION", "MASTER_DATA_SHIPMENT_MATCH" }) Assert.Equal("Satisfied", StatusOf(supported, code));
 
-        await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", Application(scope: "Pending", flow: "Pending", description: null)));
+        await Ok(ApplicabilitySupport.Put(c, w.CaseId, Application(scope: "Pending", flow: "Pending", description: null)));
         var pending = await Completeness(c, w.CaseId);
         Assert.Equal("Pending", pending.GetProperty("applicability").GetProperty("status").GetString()); Assert.Equal("Missing", StatusOf(pending, "APPLICABILITY_DECIDED")); Assert.Equal("Missing", StatusOf(pending, "PRODUCT_DESCRIPTION"));
 
-        await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", Application(scope: "OutsideRegulatoryScope", flow: "Pending", description: null)));
+        await Ok(ApplicabilitySupport.Put(c, w.CaseId, Application(scope: "OutsideRegulatoryScope", flow: "Pending", description: null)));
         var outside = await Completeness(c, w.CaseId);
         Assert.Equal("OutsideRegulatoryScope", outside.GetProperty("applicability").GetProperty("status").GetString()); Assert.Equal("Invalid", StatusOf(outside, "APPLICABILITY_IN_SCOPE"));
         Assert.Contains("outside this policy's scope", Item(outside, "APPLICABILITY_IN_SCOPE").GetProperty("reason").GetString()); Assert.Equal("NotApplicable", StatusOf(outside, "FLOW_SUPPORTED"));
 
-        await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", Application(activity: "Export")));
+        await Ok(ApplicabilitySupport.Put(c, w.CaseId, Application(activity: "Export")));
         var unsupported = await Completeness(c, w.CaseId);
         Assert.Equal("UnsupportedFlow", unsupported.GetProperty("applicability").GetProperty("status").GetString()); Assert.Equal("Invalid", StatusOf(unsupported, "FLOW_SUPPORTED"));
         Assert.Equal("Incomplete", unsupported.GetProperty("dataCoverage").GetString());
@@ -280,7 +280,7 @@ public sealed class CompletenessReadModelTests(ApiFactory factory)
         // The old assessment was about product X: the product id alone makes it ProductChanged, though CN code and commodity are equal.
         Assert.Equal("ProductChanged", adopted.GetProperty("applicability").GetProperty("status").GetString()); Assert.Equal("Invalid", StatusOf(adopted, "APPLICABILITY_PRODUCT_MATCH"));
         Assert.NotEqual(Fingerprint(mismatch), Fingerprint(adopted));
-        await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", Application()));
+        await Ok(ApplicabilitySupport.Put(c, w.CaseId, Application()));
         Assert.Equal("Satisfied", StatusOf(await Completeness(c, w.CaseId), "APPLICABILITY_PRODUCT_MATCH"));
     }
 
@@ -420,7 +420,7 @@ public sealed class CompletenessReadModelTests(ApiFactory factory)
         Assert.Equal(HttpStatusCode.NoContent, (await Patch(c, $"/api/eudr-cases/{w.CaseId}/requirements/{requirement}", new { status = "NotRequired", reviewerNote = "n/a" })).StatusCode);
         Assert.NotEqual(withoutLink, Fingerprint(await Completeness(c, w.CaseId)));
         await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/recipients", new { resolution = "NotApplicable", notApplicableBasis = "x", recipients = Array.Empty<object>() }));
-        await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", Application(description: "A revised assessed description")));
+        await Ok(ApplicabilitySupport.Put(c, w.CaseId, Application(description: "A revised assessed description")));
         Assert.NotEqual(withoutLink, Fingerprint(await Completeness(c, w.CaseId)));
     }
 

@@ -50,9 +50,11 @@ public static partial class CompletenessEvaluator
             return;
         }
         var scopePending = a.RegulatoryScope == RegulatoryScope.Pending;
+        var legalReview = a.RegulatoryScope == RegulatoryScope.RequiresLegalReview;
         var flowPending = a.RegulatoryScope == RegulatoryScope.InScope && a.FlowSupport == FlowSupport.Pending;
         items.Add(Item("APPLICABILITY_RECORDED", g, CompletenessItemStatus.Satisfied, $"Applicability assessment version {a.Number} is recorded.", "CaseApplicability", a.Id));
         items.Add(scopePending ? Item("APPLICABILITY_DECIDED", g, CompletenessItemStatus.Missing, "The regulatory scope decision is still Pending.")
+            : legalReview ? Item("APPLICABILITY_DECIDED", g, CompletenessItemStatus.Missing, "The Owner determined that the regulatory scope requires legal review before it can be decided.")
             : flowPending ? Item("APPLICABILITY_DECIDED", g, CompletenessItemStatus.Missing, "The regulatory scope is InScope but flow support is still Pending.")
             : Item("APPLICABILITY_DECIDED", g, CompletenessItemStatus.Satisfied, "The regulatory scope decision" + (a.RegulatoryScope == RegulatoryScope.InScope ? " and flow support are" : " is") + " recorded."));
         items.Add(status == ApplicabilityStatus.ProductChanged
@@ -61,12 +63,13 @@ public static partial class CompletenessEvaluator
         items.Add(a.RegulatoryScope switch
         {
             RegulatoryScope.Pending => Item("APPLICABILITY_IN_SCOPE", g, CompletenessItemStatus.Missing, "The regulatory scope decision is still Pending."),
+            RegulatoryScope.RequiresLegalReview => Item("APPLICABILITY_IN_SCOPE", g, CompletenessItemStatus.Missing, "The regulatory scope requires legal review and is not decided."),
             RegulatoryScope.InScope => Item("APPLICABILITY_IN_SCOPE", g, CompletenessItemStatus.Satisfied, "The recorded decision places the case in scope."),
             _ => Item("APPLICABILITY_IN_SCOPE", g, CompletenessItemStatus.Invalid, "The recorded decision places the case outside this policy's scope; this is not a finding of non-compliance."),
         });
         if (a.RegulatoryScope == RegulatoryScope.OutsideRegulatoryScope)
             items.Add(Item("FLOW_SUPPORTED", g, CompletenessItemStatus.NotApplicable, "Not applicable: the recorded applicability decision places the case outside the regulatory scope."));
-        else if (scopePending || flowPending)
+        else if (scopePending || legalReview || flowPending)
             items.Add(Item("FLOW_SUPPORTED", g, CompletenessItemStatus.Missing, "Flow support is not decided yet."));
         else if (a.FlowSupport == FlowSupport.UnsupportedFlow || ApplicabilityDerivation.EnvelopeRejects(a))
             items.Add(Item("FLOW_SUPPORTED", g, CompletenessItemStatus.Invalid, "The flow is unsupported by pilot policy v1: " + UnsupportedCauses(a) + "."));

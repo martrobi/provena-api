@@ -473,7 +473,7 @@ public sealed class RiskTests(ApiFactory factory)
         foreach (var (decision, application) in new[] { ("ConfirmedOutsideRegulatoryScope", Application("OutsideRegulatoryScope", "Pending")), ("ConfirmedUnsupportedFlow", Application(activity: "Export")) })
         {
             var o = await NewOwner(); var w = await Build(o.Client, o.Org, Light);
-            await Ok(o.Client.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", application));
+            await Ok(ApplicabilitySupport.Put(o.Client, w.CaseId, application));
             var review = await Review(o.Client, w.CaseId, decision);
             Assert.Equal("ReviewNotAccepted", Reason(await Problem(await Assess(o.Client, w.CaseId, AssessBody(review)), HttpStatusCode.Conflict)));
             var closure = await Json(await Close(o.Client, w.CaseId, review), HttpStatusCode.Created);
@@ -682,7 +682,7 @@ public sealed class RiskTests(ApiFactory factory)
         // A legacy-shaped closure (no risk assessment) also exports, with a null reference.
         var o2 = await NewOwner();
         var w2 = await Build(o2.Client, o2.Org, Light);
-        await Ok(o2.Client.PutAsJsonAsync($"/api/eudr-cases/{w2.CaseId}/applicability", Application("OutsideRegulatoryScope", "Pending")));
+        await Ok(ApplicabilitySupport.Put(o2.Client, w2.CaseId, Application("OutsideRegulatoryScope", "Pending")));
         var review = await Review(o2.Client, w2.CaseId, "ConfirmedOutsideRegulatoryScope");
         Assert.Equal(HttpStatusCode.Created, (await Close(o2.Client, w2.CaseId, review)).StatusCode);
         var closed = await WorkingManifest(o2.Client, w2.CaseId);

@@ -269,7 +269,7 @@ public sealed class ExternalDdsTests(ApiFactory factory)
         Assert.Equal(fresh, (await Json(await Post(c, w.CaseId, Body(fresh)), HttpStatusCode.Created)).GetProperty("reviewId").GetGuid());
         // Reviews outside scope / unsupported flow are not external submissions either.
         var light = await NewOwner(); var lw = await Build(light.Client, light.Org, new Opt(Recipients: false, Lot: false, Documents: false));
-        await Ok(light.Client.PutAsJsonAsync($"/api/eudr-cases/{lw.CaseId}/applicability", Application("OutsideRegulatoryScope", "Pending")));
+        await Ok(ApplicabilitySupport.Put(light.Client, lw.CaseId, Application("OutsideRegulatoryScope", "Pending")));
         Assert.Equal("ReviewNotAccepted", Reason(await Problem(await Post(light.Client, lw.CaseId, Body(await Review(light.Client, lw.CaseId, "ConfirmedOutsideRegulatoryScope"))), HttpStatusCode.Conflict)));
     }
 
@@ -382,7 +382,7 @@ public sealed class ExternalDdsTests(ApiFactory factory)
         foreach (var (decision, application) in new[] { ("ConfirmedOutsideRegulatoryScope", Application("OutsideRegulatoryScope", "Pending")), ("ConfirmedUnsupportedFlow", Application(activity: "Export")) })
         {
             var l = await NewOwner(); var lw = await Build(l.Client, l.Org, new Opt(Recipients: false, Lot: false, Documents: false));
-            await Ok(l.Client.PutAsJsonAsync($"/api/eudr-cases/{lw.CaseId}/applicability", application));
+            await Ok(ApplicabilitySupport.Put(l.Client, lw.CaseId, application));
             var review = await Review(l.Client, lw.CaseId, decision);
             await Problem(await Close(l.Client, lw.CaseId, review, "EU-REF-X"), HttpStatusCode.BadRequest);
             Assert.Equal(HttpStatusCode.Created, (await Close(l.Client, lw.CaseId, review)).StatusCode);

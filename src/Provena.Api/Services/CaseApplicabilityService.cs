@@ -10,9 +10,12 @@ namespace Provena.Api.Services;
 // current version and inserts a successor. The assessed product identity is copied by the server from the case's current master-data copy, which
 // must describe the case's current shipment. Recording an assessment is a working fact only: it never changes requirements or the case status and
 // is not a legal determination. Audit text carries identifiers only.
-public sealed class CaseApplicabilityService(AppDbContext db, TenantContext tenant, CaseService cases, AuditService audit, IValidator<CaseApplicabilityInput> validator)
+public sealed class CaseApplicabilityService(AppDbContext db, TenantContext tenant, CaseService cases, OwnerGate owner, AuditService audit, IValidator<CaseApplicabilityInput> validator)
 {
     private const string RefreshFirst = "Refresh the case master data first.";
+    public const string MasterDataRefreshRequiredReason = "MasterDataRefreshRequired";
+    public const string HistoryChangedReason = "ApplicabilityHistoryChanged";
+    private static ApiException RefreshRequired() => new(409, RefreshFirst, new { reason = MasterDataRefreshRequiredReason });
 
     // 204 (null) when nothing is recorded; 404 for an unknown or foreign case.
     public async Task<CaseApplicabilityDto?> Current(Guid caseId, CancellationToken ct)
@@ -29,20 +32,26 @@ public sealed class CaseApplicabilityService(AppDbContext db, TenantContext tena
         return (await db.CaseApplicabilities.AsNoTracking().Where(x => x.EudrCaseId == caseId).OrderByDescending(x => x.Number).ToListAsync(ct)).Select(x => x.ToDto()).ToList();
     }
 
-    public async Task<CaseApplicabilityDto> Save(Guid caseId, CaseApplicabilityInput input, CancellationToken ct)
+    // Owner-only. Order: live Owner check (403, before any case lookup and before the body is read) -> case lock (404) -> editable (409) -> body (400) -> master-data match (409)
+    // -> current version and expected-id comparison (409) -> identical no-op -> supersede/insert.
+    public async Task<CaseApplicabilityDto> Save(Guid caseId, Func<CancellationToken, Task<CaseApplicabilityInput?>> readBody, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
-        // The route case is resolved and locked (404) and must be editable (409) before the body is examined (400).
+        await owner.Require("Only an organization owner can record the applicability determination.", ct);
         var c = await cases.Lock(caseId, ct); await cases.EnsureMutable(c, ct);
+        var input = await readBody(ct) ?? throw new ApiException(400, "A JSON request body is required.");
         var normalized = Normalize(input);
         await validator.ValidateAndThrowAsync(normalized, ct);
 
         // The assessment is only meaningful against a copy of the case's current shipment's supplier and product.
-        var copy = await db.CaseMasterDataVersions.AsNoTracking().Current().SingleOrDefaultAsync(x => x.EudrCaseId == caseId, ct) ?? throw ApiException.Conflict(RefreshFirst);
+        var copy = await db.CaseMasterDataVersions.AsNoTracking().Current().SingleOrDefaultAsync(x => x.EudrCaseId == caseId, ct) ?? throw RefreshRequired();
         var shipment = await db.Shipments.AsNoTracking().SingleAsync(x => x.Id == c.ShipmentId, ct);
-        if (!CaseMasterDataService.ShipmentMatches(copy, shipment)) throw ApiException.Conflict(RefreshFirst);
+        if (!CaseMasterDataService.ShipmentMatches(copy, shipment)) throw RefreshRequired();
 
         var current = await db.CaseApplicabilities.Current().SingleOrDefaultAsync(x => x.EudrCaseId == caseId, ct);
+        // The Owner replaces exactly the version they loaded (null: none existed). Compared BEFORE the identical-resubmission no-op, so a stale client never gets a silent success.
+        if (normalized.ExpectedCurrentApplicabilityId != current?.Id)
+            throw new ApiException(409, "Applicability history changed since it was loaded", new { reason = HistoryChangedReason, currentApplicabilityId = current?.Id, currentApplicabilityNumber = current?.Number });
         if (current != null && IsIdentical(normalized, copy, current)) { await tx.CommitAsync(ct); return await View(caseId, current, ct); }
 
         var now = DateTimeOffset.UtcNow;

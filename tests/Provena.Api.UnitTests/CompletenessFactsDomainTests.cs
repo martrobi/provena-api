@@ -202,7 +202,7 @@ public sealed class CompletenessFactsDomainTests
     private static readonly CaseApplicabilityValidator ApplicabilityValidator = new();
     private static CaseApplicabilityInput Input(RegulatoryScope scope = RegulatoryScope.InScope, FlowSupport flow = FlowSupport.Supported, OperatorRole role = OperatorRole.Operator, string? roleDescription = null,
         string? productDescription = "Green coffee beans", string? citation = "Art. 1", string? legalBasis = "2023/1115", string? reasoning = "Reasoning", DateOnly? effective = null, DateOnly? activity = null) =>
-        new(productDescription, true, ApplicabilityActivityType.PlacingOnMarketByImport, role, roleDescription, activity ?? Day, ActivityDateKind.Planned, citation, null, legalBasis, effective ?? Day, reasoning, scope, flow);
+        new(productDescription, true, ApplicabilityActivityType.PlacingOnMarketByImport, role, roleDescription, activity ?? Day, ActivityDateKind.Planned, citation, null, legalBasis, effective ?? Day, reasoning, scope, flow, null);
     private static bool Valid(CaseApplicabilityInput input) => ApplicabilityValidator.Validate(CaseApplicabilityService.Normalize(input)).IsValid;
 
     [Fact]
@@ -220,7 +220,7 @@ public sealed class CompletenessFactsDomainTests
     [Fact]
     public void A_decided_scope_requires_the_decision_fields_and_pending_does_not()
     {
-        var pending = new CaseApplicabilityInput(null, false, ApplicabilityActivityType.PlacingOnMarketByImport, OperatorRole.Operator, null, null, ActivityDateKind.Planned, null, null, null, null, null, RegulatoryScope.Pending, FlowSupport.Pending);
+        var pending = new CaseApplicabilityInput(null, false, ApplicabilityActivityType.PlacingOnMarketByImport, OperatorRole.Operator, null, null, ActivityDateKind.Planned, null, null, null, null, null, RegulatoryScope.Pending, FlowSupport.Pending, null);
         Assert.True(Valid(pending));
         foreach (var scope in new[] { RegulatoryScope.InScope, RegulatoryScope.OutsideRegulatoryScope })
         {

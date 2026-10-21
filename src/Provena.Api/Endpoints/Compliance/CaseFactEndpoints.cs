@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Provena.Api.Contracts;
 using Provena.Api.Services;
@@ -15,7 +16,7 @@ internal static class CaseFactEndpoints
         masterData.MapGet("/master-data-history", MasterDataHistory);
         var applicability = group.MapGroup("").WithTags("Applicability");
         applicability.MapGet("/applicability", Applicability);
-        applicability.MapPut("/applicability", SaveApplicability);
+        applicability.MapPut("/applicability", SaveApplicability).WithManuallyReadJsonBody<CaseApplicabilityInput, RouteHandlerBuilder>("expectedCurrentApplicabilityId"); // null when none existed
         applicability.MapGet("/applicability-history", ApplicabilityHistory);
         var recipients = group.MapGroup("").WithTags("Recipients");
         recipients.MapGet("/recipients", Recipients);
@@ -37,8 +38,9 @@ internal static class CaseFactEndpoints
 
     private static async Task<Results<Ok<CaseApplicabilityDto>, NoContent>> Applicability(Guid caseId, CaseApplicabilityService service, CancellationToken ct)
         => await service.Current(caseId, ct) is { } value ? TypedResults.Ok(value) : TypedResults.NoContent();
-    // Replacement command: the body is the complete assessment. The route case is resolved and locked before the body is validated.
-    private static async Task<Ok<CaseApplicabilityDto>> SaveApplicability(Guid caseId, CaseApplicabilityInput input, CaseApplicabilityService service, CancellationToken ct) => TypedResults.Ok(await service.Save(caseId, input, ct));
+    // Replacement command, Owner-only: the body is the complete assessment. The handler reads it AFTER the live Owner check inside the service (a Member gets 403 whatever the case id or body).
+    private static async Task<Ok<CaseApplicabilityDto>> SaveApplicability(Guid caseId, HttpRequest request, IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions> json, CaseApplicabilityService service, CancellationToken ct)
+        => TypedResults.Ok(await service.Save(caseId, CaseLifecycleEndpoints.Body<CaseApplicabilityInput>(request, json, "an applicability determination"), ct));
     private static async Task<Ok<List<CaseApplicabilityVersionDto>>> ApplicabilityHistory(Guid caseId, CaseApplicabilityService service, CancellationToken ct) => TypedResults.Ok(await service.History(caseId, ct));
 
     private static async Task<Results<Ok<CaseRecipientStatementDto>, NoContent>> Recipients(Guid caseId, CaseRecipientService service, CancellationToken ct)

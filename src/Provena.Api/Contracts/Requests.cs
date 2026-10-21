@@ -59,7 +59,8 @@ public enum MasterDataArea { Operator, Supplier, Product }
 public sealed record MasterDataDriftDto(MasterDataArea Area, List<string> Fields);
 public sealed record CaseMasterDataDto(CaseMasterDataVersionDto Current, bool ShipmentMatch, List<MasterDataDriftDto> Drift);
 public sealed record CaseApplicabilityInput(string? ProductDescription, bool SingleRelevantCommodity, ApplicabilityActivityType ActivityType, OperatorRole OperatorRole, string? OperatorRoleDescription,
-    DateOnly? ActivityDate, ActivityDateKind ActivityDateKind, string? ScopeCitation, string? Qualifications, string? LegalBasisVersion, DateOnly? EffectiveDate, string? Reasoning, RegulatoryScope RegulatoryScope, FlowSupport FlowSupport);
+    DateOnly? ActivityDate, ActivityDateKind ActivityDateKind, string? ScopeCitation, string? Qualifications, string? LegalBasisVersion, DateOnly? EffectiveDate, string? Reasoning, RegulatoryScope RegulatoryScope, FlowSupport FlowSupport,
+    Guid? ExpectedCurrentApplicabilityId); // null: the client loaded a state with no current applicability
 public sealed record CaseApplicabilityVersionDto(Guid Id, int Number, Guid AssessedProductId, string AssessedCnCode, CommodityType AssessedCommodity, string? ProductDescription, bool SingleRelevantCommodity, ApplicabilityActivityType ActivityType,
     OperatorRole OperatorRole, string? OperatorRoleDescription, DateOnly? ActivityDate, ActivityDateKind ActivityDateKind, string? ScopeCitation, string? Qualifications, string? LegalBasisVersion, DateOnly? EffectiveDate, string? Reasoning,
     RegulatoryScope RegulatoryScope, FlowSupport FlowSupport, Guid? DecidedByUserId, DateTimeOffset? DecidedAtUtc, Guid? CreatedByUserId, DateTimeOffset CreatedAtUtc, DateTimeOffset? SupersededAtUtc);

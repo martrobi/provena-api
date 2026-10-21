@@ -12,6 +12,7 @@ public static class ApplicabilityDerivation
         if (ProductChanged(applicability, currentMasterData)) return ApplicabilityStatus.ProductChanged;
         switch (applicability.RegulatoryScope)
         {
+            case RegulatoryScope.RequiresLegalReview: return ApplicabilityStatus.RequiresLegalReview; // FlowSupport is ignored here.
             case RegulatoryScope.Pending: return ApplicabilityStatus.Pending;
             case RegulatoryScope.OutsideRegulatoryScope: return ApplicabilityStatus.OutsideRegulatoryScope; // FlowSupport is ignored here.
         }

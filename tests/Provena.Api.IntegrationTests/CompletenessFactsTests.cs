@@ -108,7 +108,7 @@ public sealed class CompletenessFactsTests(ApiFactory factory)
         activityDate = "2026-06-01", activityDateKind = "Planned", scopeCitation = "Regulation (EU) 2023/1115, Annex I", qualifications = (string?)null,
         legalBasisVersion = "2023/1115 as applicable", effectiveDate = "2026-01-01", reasoning, regulatoryScope = scope, flowSupport = flow,
     };
-    private static Task<HttpResponseMessage> PutApplicability(HttpClient c, Guid caseId, object body) => c.PutAsJsonAsync($"/api/eudr-cases/{caseId}/applicability", body);
+    private static Task<HttpResponseMessage> PutApplicability(HttpClient c, Guid caseId, object body) => ApplicabilitySupport.Put(c, caseId, body);
     private static async Task<JsonElement> Applicability(HttpClient c, Guid caseId) => await Json(await c.GetAsync($"/api/eudr-cases/{caseId}/applicability"), HttpStatusCode.OK);
     private static async Task<JsonElement> ApplicabilityHistory(HttpClient c, Guid caseId) => await Json(await c.GetAsync($"/api/eudr-cases/{caseId}/applicability-history"), HttpStatusCode.OK);
     private static async Task<(CaseIds Ids, JsonElement Copy)> CaseWithCopy(HttpClient c)

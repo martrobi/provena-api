@@ -4,9 +4,11 @@ public enum ApplicabilityActivityType { PlacingOnMarketByImport, PlacingOnMarket
 // Operator is the only supported role; OtherUnsupported records a human assessment that the organization acts in another role (always an unsupported flow).
 public enum OperatorRole { Operator, OtherUnsupported }
 public enum ActivityDateKind { Planned, Actual }
-public enum RegulatoryScope { Pending, InScope, OutsideRegulatoryScope }
+// RequiresLegalReview is appended last (numeric values are persisted): the Owner determined that applicability cannot currently be resolved without legal/domain review.
+// It is none of InScope, OutsideRegulatoryScope or UnsupportedFlow, and never a non-compliance finding.
+public enum RegulatoryScope { Pending, InScope, OutsideRegulatoryScope, RequiresLegalReview }
 public enum FlowSupport { Pending, Supported, UnsupportedFlow }
-public enum ApplicabilityStatus { NotRecorded, ProductChanged, Pending, OutsideRegulatoryScope, UnsupportedFlow, WithinSupportedScope }
+public enum ApplicabilityStatus { NotRecorded, ProductChanged, Pending, OutsideRegulatoryScope, UnsupportedFlow, WithinSupportedScope, RequiresLegalReview }
 
 // Immutable, versioned human assessment of whether the case's product and flow are in regulatory scope and inside the pilot's supported envelope.
 // The only allowed update is the one-way SupersededAtUtc retirement; at most one current version per case.

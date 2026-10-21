@@ -225,22 +225,21 @@ public sealed class ReviewTests(ApiFactory factory)
     public async Task Outside_scope_and_unsupported_flow_confirmations_follow_the_recorded_applicability()
     {
         var o = await NewOwner(); var w = await Build(o.Client, o.Org, new Opt(Recipients: false, Lot: false, Documents: false));
-        var url = $"/api/eudr-cases/{w.CaseId}/applicability";
         // Supported flow: neither confirmation applies.
         var supported = await Completeness(o.Client, w.CaseId);
         Assert.Contains("requires OutsideRegulatoryScope", Reason(await Failure(await Post(o.Client, w.CaseId, Body("ConfirmedOutsideRegulatoryScope", Fingerprint(supported), null)))));
         Assert.Contains("requires UnsupportedFlow", Reason(await Failure(await Post(o.Client, w.CaseId, Body("ConfirmedUnsupportedFlow", Fingerprint(supported), null)))));
 
-        await Ok(o.Client.PutAsJsonAsync(url, ApplicationWith(scope: "OutsideRegulatoryScope", flow: "Pending")));
+        await Ok(ApplicabilitySupport.Put(o.Client, w.CaseId, ApplicationWith(scope: "OutsideRegulatoryScope", flow: "Pending")));
         Assert.Equal(HttpStatusCode.Created, (await ReviewNow(o.Client, w.CaseId, "ConfirmedOutsideRegulatoryScope")).StatusCode); // flow support may stay Pending; no InScope completeness is required
         var state = await Completeness(o.Client, w.CaseId);
         Assert.Contains("requires UnsupportedFlow", Reason(await Failure(await Post(o.Client, w.CaseId, Body("ConfirmedUnsupportedFlow", Fingerprint(state), LatestId(state))))));
 
-        await Ok(o.Client.PutAsJsonAsync(url, ApplicationWith(activity: "Export")));
+        await Ok(ApplicabilitySupport.Put(o.Client, w.CaseId, ApplicationWith(activity: "Export")));
         Assert.Equal(HttpStatusCode.Created, (await ReviewNow(o.Client, w.CaseId, "ConfirmedUnsupportedFlow")).StatusCode);
 
         // OtherUnsupported with its required description derives UnsupportedFlow and can be confirmed.
-        await Ok(o.Client.PutAsJsonAsync(url, ApplicationWith(role: "OtherUnsupported", roleDescription: "Downstream trader")));
+        await Ok(ApplicabilitySupport.Put(o.Client, w.CaseId, ApplicationWith(role: "OtherUnsupported", roleDescription: "Downstream trader")));
         Assert.Equal("UnsupportedFlow", (await Completeness(o.Client, w.CaseId)).GetProperty("applicability").GetProperty("status").GetString());
         Assert.Equal(HttpStatusCode.Created, (await ReviewNow(o.Client, w.CaseId, "ConfirmedUnsupportedFlow")).StatusCode);
         Assert.Equal(3, await Revisions(o.Org, w.CaseId));
@@ -269,7 +268,7 @@ public sealed class ReviewTests(ApiFactory factory)
             Assert.Contains("ProductChanged", Reason(errors));
         }
         Assert.Equal(1, await Revisions(o.Org, w.CaseId));
-        await Ok(o.Client.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", Application())); // a new assessment clears ProductChanged
+        await Ok(ApplicabilitySupport.Put(o.Client, w.CaseId, Application())); // a new assessment clears ProductChanged
         Assert.Equal("WithinSupportedScope", (await Completeness(o.Client, w.CaseId)).GetProperty("applicability").GetProperty("status").GetString());
     }
 
@@ -505,7 +504,7 @@ public sealed class ReviewTests(ApiFactory factory)
         Assert.Equal("Stale", await FreshnessOf(c, w.CaseId)); Assert.Equal(["Requirements"], await ChangedAreas(c, w.CaseId));
 
         await Reviewed(c, w.CaseId); Assert.Equal("Current", await FreshnessOf(c, w.CaseId));
-        await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", Application(description: "A revised assessed description")));
+        await Ok(ApplicabilitySupport.Put(c, w.CaseId, Application(description: "A revised assessed description")));
         Assert.Equal(["Applicability"], await ChangedAreas(c, w.CaseId));
 
         await Reviewed(c, w.CaseId);

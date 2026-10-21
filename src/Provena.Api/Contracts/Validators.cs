@@ -158,7 +158,8 @@ public sealed class CaseApplicabilityValidator : AbstractValidator<CaseApplicabi
         RuleFor(x => x.OperatorRoleDescription).NotEmpty().When(x => x.OperatorRole == OperatorRole.OtherUnsupported).WithMessage("A description of the operator's role is required when the role is OtherUnsupported.");
         RuleFor(x => x.OperatorRoleDescription).Null().When(x => x.OperatorRole == OperatorRole.Operator).WithMessage("A role description is only permitted when the role is OtherUnsupported.");
         RuleFor(x => x.ProductDescription).NotEmpty().When(x => x.RegulatoryScope == RegulatoryScope.InScope).WithMessage("A product description is required when the regulatory scope is InScope.");
-        When(x => x.RegulatoryScope != RegulatoryScope.Pending, () =>
+        RuleFor(x => x.Reasoning).NotEmpty().When(x => x.RegulatoryScope == RegulatoryScope.RequiresLegalReview).WithMessage("Reasoning is required when the regulatory scope is RequiresLegalReview.");
+        When(x => x.RegulatoryScope is not (RegulatoryScope.Pending or RegulatoryScope.RequiresLegalReview), () =>
         {
             RuleFor(x => x.ScopeCitation).NotEmpty(); RuleFor(x => x.LegalBasisVersion).NotEmpty(); RuleFor(x => x.Reasoning).NotEmpty();
             RuleFor(x => x.EffectiveDate).NotNull(); RuleFor(x => x.ActivityDate).NotNull();

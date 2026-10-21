@@ -189,7 +189,7 @@ public sealed class QuantityReconciliationTests(ApiFactory factory)
     public async Task Confirmed_outside_scope_and_unsupported_flow_review_and_close_with_mismatching_quantities(string decision, string outcome)
     {
         var o = await NewOwner(); var w = await Build(o.Client, o.Org);
-        await Ok(o.Client.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", decision == "ConfirmedOutsideRegulatoryScope" ? Application("OutsideRegulatoryScope", "Pending") : Application(activity: "Export")));
+        await Ok(ApplicabilitySupport.Put(o.Client, w.CaseId, decision == "ConfirmedOutsideRegulatoryScope" ? Application("OutsideRegulatoryScope", "Pending") : Application(activity: "Export")));
         await Ok(SaveLot(w, 25m, 25m)); // Shipment <-> CaseLot mismatch
         Assert.Equal("QuantityMismatch", Outcome(await Completeness(o.Client, w.CaseId)));
         var review = await Json(await ReviewNow(o.Client, w.CaseId, decision), HttpStatusCode.Created);

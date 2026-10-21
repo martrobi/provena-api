@@ -85,8 +85,8 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
     private async Task<(Owner Owner, World World, Guid ReviewId)> Reviewed(string decision, Opt? options = null)
     {
         var o = await NewOwner(); var w = await Build(o.Client, o.Org, options ?? (decision == "AcceptedAsCompleteUnderPolicy" ? new Opt() : Light));
-        if (decision == "ConfirmedOutsideRegulatoryScope") await Ok(o.Client.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", Application("OutsideRegulatoryScope", "Pending")));
-        if (decision == "ConfirmedUnsupportedFlow") await Ok(o.Client.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", Application(activity: "Export")));
+        if (decision == "ConfirmedOutsideRegulatoryScope") await Ok(ApplicabilitySupport.Put(o.Client, w.CaseId, Application("OutsideRegulatoryScope", "Pending")));
+        if (decision == "ConfirmedUnsupportedFlow") await Ok(ApplicabilitySupport.Put(o.Client, w.CaseId, Application(activity: "Export")));
         return (o, w, await Review(o.Client, w.CaseId, decision));
     }
     private async Task<(Owner Owner, World World, JsonElement Closure)> Closed(string decision = "ConfirmedOutsideRegulatoryScope", Opt? options = null)
@@ -243,7 +243,7 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
         using (var geo = Upload("late.geojson", "application/geo+json", """{"type":"Polygon","coordinates":[[[-48,-20],[-47,-20],[-47,-19],[-48,-20]]]}""")) await Add("geolocation upload", c.PostAsync($"/api/eudr-cases/{caseId}/geolocation", geo));
         await Add("lot", c.PutAsJsonAsync($"/api/eudr-cases/{caseId}/dossier/lot", new { lotReference = "LATE", quantity = 1, unit = "Kg", contributions = Array.Empty<object>() }));
         await Add("master data refresh", c.PostAsync($"/api/eudr-cases/{caseId}/master-data/refresh", null));
-        await Add("applicability", c.PutAsJsonAsync($"/api/eudr-cases/{caseId}/applicability", Application()));
+        await Add("applicability", ApplicabilitySupport.Put(c, caseId, Application()));
         await Add("recipients", c.PutAsJsonAsync($"/api/eudr-cases/{caseId}/recipients", Recipients("Late GmbH")));
         await Add("evidence link create", c.PostAsJsonAsync($"/api/eudr-cases/{caseId}/evidence-links", new { caseDocumentId = w.Docs[0], purpose = "Applicability" }));
         await Add("evidence link withdraw", c.DeleteAsync($"/api/eudr-cases/{caseId}/evidence-links/{w.Links[0]}"));
@@ -505,8 +505,8 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
     private async Task<(Guid ReviewId, World World, JsonElement Closure)> ReviewedAndClosed(HttpClient c, Guid org, string decision)
     {
         var w = await Build(c, org, decision == "AcceptedAsCompleteUnderPolicy" ? new Opt() : Light);
-        if (decision == "ConfirmedOutsideRegulatoryScope") await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", Application("OutsideRegulatoryScope", "Pending")));
-        if (decision == "ConfirmedUnsupportedFlow") await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", Application(activity: "Export")));
+        if (decision == "ConfirmedOutsideRegulatoryScope") await Ok(ApplicabilitySupport.Put(c, w.CaseId, Application("OutsideRegulatoryScope", "Pending")));
+        if (decision == "ConfirmedUnsupportedFlow") await Ok(ApplicabilitySupport.Put(c, w.CaseId, Application(activity: "Export")));
         var review = await Review(c, w.CaseId, decision);
         return (review, w, await Json(decision == "AcceptedAsCompleteUnderPolicy" ? await CloseDds(c, w.CaseId, review, "DDS-D") : await Close(c, w.CaseId, review), HttpStatusCode.Created));
     }
@@ -552,7 +552,7 @@ public sealed class CaseLifecycleTests(ApiFactory factory)
     public async Task The_minimal_smoke_sequence_closes_reopens_archives_and_unarchives_a_case()
     {
         var o = await NewOwner(); var c = o.Client; var w = await Build(c, o.Org, new Opt(Profile: false, SupplierFacts: false, Applicability: false, Recipients: false, Lot: false, Documents: false));
-        await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/applicability", Application("OutsideRegulatoryScope", "Pending")));
+        await Ok(ApplicabilitySupport.Put(c, w.CaseId, Application("OutsideRegulatoryScope", "Pending")));
         var review = await Review(c, w.CaseId, "ConfirmedOutsideRegulatoryScope");
         var closure = await Json(await Close(c, w.CaseId, review), HttpStatusCode.Created);
         Assert.Equal("OutsideRegulatoryScope", closure.GetProperty("outcome").GetString()); Assert.Equal("Closed", await StatusOf(c, w.CaseId));
