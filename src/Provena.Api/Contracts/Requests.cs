@@ -33,7 +33,8 @@ public sealed record PlotRevisionDto(Guid Id, Guid ProductionPlotId, int Number,
 public sealed record ProductionPlotListItem(Guid Id, Guid ProducerId, string Name, string? ExternalReference, bool IsActive, DateTimeOffset UpdatedAtUtc, PlotRevisionSummaryDto CurrentRevision);
 public sealed record ProductionPlotDto(Guid Id, Guid ProducerId, string Name, string? ExternalReference, string? Notes, bool IsActive, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, PlotRevisionDto CurrentRevision);
 // Case dossier: the PUT body is the complete factual state of the case's one lot (header, producer contributions, plot/revision links).
-public sealed record CaseLotInput(string LotReference, decimal Quantity, QuantityUnit Unit, string? Note, List<LotContributionInput> Contributions);
+public sealed record CaseLotInput(string LotReference, decimal Quantity, QuantityUnit Unit, string? Note, List<LotContributionInput> Contributions,
+    Guid? ExpectedCurrentLotId); // null: the client loaded a state with no current lot
 public sealed record LotContributionInput(Guid ProducerId, decimal Quantity, QuantityUnit Unit, List<ContributionPlotInput> Plots);
 public sealed record ContributionPlotInput(Guid ProductionPlotId, Guid PlotRevisionId, DateOnly? ProductionStartDate, DateOnly? ProductionEndDate);
 public enum QuantityReconciliationStatus { UnderAllocated, Reconciled }
@@ -47,7 +48,8 @@ public sealed record QuantityReconciliationResultDto(QuantityReconciliationOutco
 public sealed record ContributionPlotDto(Guid Id, Guid ProductionPlotId, string PlotName, bool PlotIsActive, Guid PlotRevisionId, int RevisionNumber, string CountryCode, PlotGeometryType GeometryType, decimal? AreaHectares, DateTimeOffset? RevisionSupersededAtUtc, DateOnly? ProductionStartDate, DateOnly? ProductionEndDate);
 public sealed record LotContributionDto(Guid Id, Guid ProducerId, string ProducerName, bool ProducerIsActive, decimal Quantity, QuantityUnit Unit, List<ContributionPlotDto> Plots);
 public sealed record CaseLotDto(Guid Id, int Number, string LotReference, decimal Quantity, QuantityUnit Unit, string? Note, QuantityReconciliationDto Reconciliation, List<LotContributionDto> Contributions, Guid? CreatedByUserId, DateTimeOffset CreatedAtUtc, DateTimeOffset? SupersededAtUtc);
-public sealed record CaseDossierDto(Guid Id, Guid EudrCaseId, DateTimeOffset CreatedAtUtc, decimal ShipmentQuantity, QuantityUnit ShipmentUnit, CaseLotDto CurrentLot);
+public sealed record ProductionCoverageDto(IReadOnlyList<string> Countries, DateOnly? PeriodFrom, DateOnly? PeriodTo, int SourcesWithoutPeriod, int ProducerCount, int PlotCount);
+public sealed record CaseDossierDto(Guid Id, Guid EudrCaseId, DateTimeOffset CreatedAtUtc, decimal ShipmentQuantity, QuantityUnit ShipmentUnit, CaseLotDto CurrentLot, ProductionCoverageDto ProductionCoverage);
 // Completeness facts (ADR 0008): operator profile, case master-data copy, applicability, recipients, evidence links. No DTO carries OrganizationId.
 public sealed record OperatorProfileInput(string LegalName, string PostalAddress, string Email, string EstablishmentCountryCode, string? EoriNumber);
 public sealed record OperatorProfileDto(Guid Id, string LegalName, string PostalAddress, string Email, string EstablishmentCountryCode, string? EoriNumber, Guid? UpdatedByUserId, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc);

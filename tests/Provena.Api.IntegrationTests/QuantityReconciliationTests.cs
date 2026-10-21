@@ -46,7 +46,7 @@ public sealed class QuantityReconciliationTests(ApiFactory factory)
     private Task<int> RevokedRequests(Guid org, Guid caseId) => Query(org, db => db.SupplierRequests.CountAsync(x => x.EudrCaseId == caseId && x.RevokedAtUtc != null));
 
     // Saves the case's one lot with a single producer contribution of the given quantity; the shipment stays 10 Kg, so anything but 10 Kg is a Shipment <-> CaseLot mismatch.
-    private static Task<HttpResponseMessage> SaveLot(World w, decimal lot, decimal contribution, string unit = "Kg") => w.C.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/dossier/lot", new
+    private static Task<HttpResponseMessage> SaveLot(World w, decimal lot, decimal contribution, string unit = "Kg") => LotSupport.Put(w.C, w.CaseId, new
     {
         lotReference = "LOT-" + Guid.NewGuid().ToString("N")[..10], quantity = lot, unit, note = (string?)null,
         contributions = new[] { new { producerId = w.ProducerId, quantity = contribution, unit, plots = new[] { new { productionPlotId = w.PlotId, plotRevisionId = w.RevisionId, productionStartDate = "2024-01-01", productionEndDate = "2024-12-31" } } } },

@@ -47,6 +47,11 @@ public sealed class CompletenessService(AppDbContext db, DossierFactsBuilder bui
         foreach (var revision in facts.Contributions.SelectMany(c => c.Links).Select(l => l.Revision).DistinctBy(r => r.Id).Where(r => r.SupersededAtUtc != null).OrderBy(r => r.Id))
             advisories.Add(new("PINNED_REVISION_SUPERSEDED", "Lot", revision.Id,
                 $"The pinned plot revision {revision.Number} has since been superseded by a newer revision. The case keeps using the pinned one until the lot is saved with another revision." + closure));
+        // Evidence inconsistency information only: derived from fingerprinted facts, never a completeness item, review precondition or compliance finding. Ids and country codes only.
+        var coverage = ProductionCoverage.FromFacts(facts);
+        if (facts.Submission != null && ProductionCoverage.DiffersFromSubmission(coverage, facts.Submission.CountryOfProductionCode))
+            advisories.Add(new(ProductionCoverage.SubmissionCountryDiffersCode, "Production", facts.Submission.Id,
+                $"The production countries of the pinned lot sources ({string.Join(", ", coverage.Countries)}) differ from the country of production in the supplier submission ({facts.Submission.CountryOfProductionCode!.Trim()}). Evidence inconsistency information only; it is not a compliance finding." + closure));
         return advisories;
     }
 }

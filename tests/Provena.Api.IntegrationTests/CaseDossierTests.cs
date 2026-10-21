@@ -19,7 +19,7 @@ namespace Provena.Api.IntegrationTests;
 // Slice 4 / commit 2: internal case dossier API (GET dossier, PUT lot, GET lot-history), the shipment lock and the export additions.
 // Tenants are provisioned through AuthService directly because the shared auth rate limiter (10 / 5 minutes) is nearly consumed by other classes.
 [Collection("Api")]
-public sealed class CaseDossierTests(ApiFactory factory)
+public sealed partial class CaseDossierTests(ApiFactory factory)
 {
     private const string Square = """{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}""";
     private const string Bigger = """{"type":"Polygon","coordinates":[[[0,0],[2,0],[2,2],[0,2],[0,0]]]}""";
@@ -97,7 +97,8 @@ public sealed class CaseDossierTests(ApiFactory factory)
     private static object Link(Guid plotId, Guid revisionId, string? start = null, string? end = null) => new { productionPlotId = plotId, plotRevisionId = revisionId, productionStartDate = start, productionEndDate = end };
     private static object Contribution(Guid producerId, decimal quantity, params object[] plots) => new { producerId, quantity, unit = "Kg", plots };
     private static object Lot(string reference, decimal quantity, params object[] contributions) => new { lotReference = reference, quantity, unit = "Kg", note = (string?)null, contributions };
-    private static Task<HttpResponseMessage> Put(HttpClient c, Guid caseId, object body) => c.PutAsJsonAsync($"/api/eudr-cases/{caseId}/dossier/lot", body);
+    private static Task<HttpResponseMessage> Put(HttpClient c, Guid caseId, object body) => LotSupport.Put(c, caseId, body);
+    private static Task<Guid?> CurrentLotId(HttpClient c, Guid caseId) => LotSupport.CurrentId(c, caseId);
     private static async Task<JsonElement> Save(HttpClient c, Guid caseId, object body) => await Json(await Put(c, caseId, body), HttpStatusCode.OK);
     private static async Task<JsonElement> Dossier(HttpClient c, Guid caseId) => await Json(await c.GetAsync($"/api/eudr-cases/{caseId}/dossier"), HttpStatusCode.OK);
     private static async Task<JsonElement> History(HttpClient c, Guid caseId) => await Json(await c.GetAsync($"/api/eudr-cases/{caseId}/dossier/lot-history"), HttpStatusCode.OK);
@@ -457,15 +458,20 @@ public sealed class CaseDossierTests(ApiFactory factory)
     }
 
     // ---- N. concurrency -----------------------------------------------------------------------------------------------------------------
+    // Concurrent writers that loaded the same state: the case lock serializes them and the expected-id check lets exactly one win; the others get LotHistoryChanged (no silent retry).
     [Fact]
-    public async Task Parallel_material_saves_get_sequential_numbers_and_leave_one_current_lot()
+    public async Task Parallel_writers_of_the_same_loaded_state_yield_one_success_and_conflicts_for_the_rest()
     {
         var (a, orgA, _, _) = await Tenants(); var ids = await NewCase(a); var reference = Unique("LOT");
-        var responses = await Task.WhenAll(Enumerable.Range(1, 4).Select(i => Put(a, ids.CaseId, Lot(reference, i))));
-        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        var first = await Task.WhenAll(Enumerable.Range(1, 4).Select(i => LotSupport.PutExpecting(a, ids.CaseId, Lot(reference, i), null)));
+        Assert.Single(first, r => r.StatusCode == HttpStatusCode.OK);
+        foreach (var loser in first.Where(r => r.StatusCode != HttpStatusCode.OK)) Assert.Equal("LotHistoryChanged", (await Problem(loser, HttpStatusCode.Conflict)).GetProperty("errors").GetProperty("reason").GetString());
+        var v1 = await CurrentLotId(a, ids.CaseId);
+        var second = await Task.WhenAll(Enumerable.Range(5, 4).Select(i => LotSupport.PutExpecting(a, ids.CaseId, Lot(reference, i), v1)));
+        Assert.Single(second, r => r.StatusCode == HttpStatusCode.OK); Assert.Equal(3, second.Count(r => r.StatusCode == HttpStatusCode.Conflict));
         await using var scope = factory.Services.CreateAsyncScope(); await using var db = TenantDb(scope, orgA);
         var lots = await db.CaseLots.Where(x => db.CaseDossiers.Any(d => d.Id == x.CaseDossierId && d.EudrCaseId == ids.CaseId)).OrderBy(x => x.Number).ToListAsync();
-        Assert.Equal([1, 2, 3, 4], lots.Select(x => x.Number).ToArray());
+        Assert.Equal([1, 2], lots.Select(x => x.Number).ToArray());
         Assert.Single(lots, x => x.SupersededAtUtc == null);
         Assert.Equal(1, await db.CaseDossiers.CountAsync(x => x.EudrCaseId == ids.CaseId));
     }

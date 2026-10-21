@@ -204,7 +204,7 @@ public sealed class CompletenessReadModelTests(ApiFactory factory)
         Assert.Equal(["SUPPLIER_CONFIRMED_QUANTITY_MATCH"], f.GetProperty("items").EnumerateArray().Where(i => i.GetProperty("group").GetString() != "Evidence" && i.GetProperty("status").GetString() is "Missing" or "Invalid").Select(i => i.GetProperty("code").GetString()));
         Assert.Equal("EvidenceMissing", f.GetProperty("evidenceReadiness").GetString());
         // Policy v2: a lot that differs from the shipment stays reconciled with its own contributions but no longer matches the shipment.
-        await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{full.CaseId}/dossier/lot", new { lotReference = "LOT-X" + Guid.NewGuid().ToString("N")[..6], quantity = 25, unit = "Kg", contributions = new[] { new { producerId = full.ProducerId, quantity = 25, unit = "Kg", plots = new[] { new { productionPlotId = full.PlotId, plotRevisionId = full.RevisionId, productionStartDate = "2024-01-01", productionEndDate = "2024-02-01" } } } } }));
+        await Ok(LotSupport.Put(c, full.CaseId, new { lotReference = "LOT-X" + Guid.NewGuid().ToString("N")[..6], quantity = 25, unit = "Kg", contributions = new[] { new { producerId = full.ProducerId, quantity = 25, unit = "Kg", plots = new[] { new { productionPlotId = full.PlotId, plotRevisionId = full.RevisionId, productionStartDate = "2024-01-01", productionEndDate = "2024-02-01" } } } } }));
         var differentLot = await Completeness(c, full.CaseId); Assert.Equal("Satisfied", StatusOf(differentLot, "LOT_RECONCILED")); Assert.Equal("Invalid", StatusOf(differentLot, "SHIPMENT_LOT_QUANTITY_MATCH"));
 
         var none = await Build(c, org, new Opt(Lot: false, Documents: false));
@@ -402,7 +402,7 @@ public sealed class CompletenessReadModelTests(ApiFactory factory)
         await Ok(c.PutAsJsonAsync($"/api/producers/{w.ProducerId}", new { name = "Renamed producer", countryCode = "BR", isActive = true }));
         Assert.Equal(fp, Fingerprint(await Completeness(c, w.CaseId)));
         // Pinning the newer revision is a deliberate lot save and a different fingerprint.
-        await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/dossier/lot", new { lotReference = "LOT-NEW" + Guid.NewGuid().ToString("N")[..6], quantity = 10, unit = "Kg", contributions = new[] { new { producerId = w.ProducerId, quantity = 10, unit = "Kg", plots = new[] { new { productionPlotId = w.PlotId, plotRevisionId = newRevision, productionStartDate = "2024-01-01", productionEndDate = "2024-12-31" } } } } }));
+        await Ok(LotSupport.Put(c, w.CaseId, new { lotReference = "LOT-NEW" + Guid.NewGuid().ToString("N")[..6], quantity = 10, unit = "Kg", contributions = new[] { new { producerId = w.ProducerId, quantity = 10, unit = "Kg", plots = new[] { new { productionPlotId = w.PlotId, plotRevisionId = newRevision, productionStartDate = "2024-01-01", productionEndDate = "2024-12-31" } } } } }));
         var adopted = await Completeness(c, w.CaseId);
         Assert.NotEqual(fp, Fingerprint(adopted)); Assert.Empty(adopted.GetProperty("advisories").EnumerateArray());
     }

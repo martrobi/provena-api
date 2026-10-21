@@ -512,7 +512,7 @@ public sealed class ReviewTests(ApiFactory factory)
         Assert.Equal(["Recipients"], await ChangedAreas(c, w.CaseId));
 
         await Reviewed(c, w.CaseId);
-        await Ok(c.PutAsJsonAsync($"/api/eudr-cases/{w.CaseId}/dossier/lot", new { lotReference = "LOT-NEW" + Guid.NewGuid().ToString("N")[..6], quantity = 10, unit = "Kg", contributions = new[] { new { producerId = w.ProducerId, quantity = 10, unit = "Kg", plots = new[] { new { productionPlotId = w.PlotId, plotRevisionId = w.RevisionId, productionStartDate = "2024-01-01", productionEndDate = "2024-06-30" } } } } })); // production period change via a new lot version
+        await Ok(LotSupport.Put(c, w.CaseId, new { lotReference = "LOT-NEW" + Guid.NewGuid().ToString("N")[..6], quantity = 10, unit = "Kg", contributions = new[] { new { producerId = w.ProducerId, quantity = 10, unit = "Kg", plots = new[] { new { productionPlotId = w.PlotId, plotRevisionId = w.RevisionId, productionStartDate = "2024-01-01", productionEndDate = "2024-06-30" } } } } })); // production period change via a new lot version
         Assert.Equal(["Lot"], await ChangedAreas(c, w.CaseId));
 
         await Reviewed(c, w.CaseId);
@@ -710,6 +710,39 @@ public sealed class ReviewTests(ApiFactory factory)
     }
 
     // ---- reviewed export ---------------------------------------------------------------------------------------------------------------------
+    [Fact]
+    public async Task The_reviewed_export_coverage_is_derived_from_the_snapshot_and_stays_frozen_after_later_live_changes()
+    {
+        var o = await NewOwner(); var w = await Build(o.Client, o.Org); var c = o.Client;
+        var reviewId = (await Reviewed(c, w.CaseId, "AcceptedAsCompleteUnderPolicy")).GetProperty("reviewId").GetGuid(); var root = $"case-{w.Reference}-review-1/";
+        async Task<JsonElement> ReviewJson()
+        {
+            var files = await ReadZip(await c.GetAsync($"/api/eudr-cases/{w.CaseId}/reviews/{reviewId}/export"));
+            using var doc = JsonDocument.Parse(files[root + "review.json"]); return doc.RootElement.Clone();
+        }
+        var before = await ReviewJson(); var coverage = before.GetProperty("productionCoverage");
+        Assert.Equal(["BR"], coverage.GetProperty("countries").EnumerateArray().Select(x => x.GetString()!).ToArray());
+        Assert.Equal("2024-01-01", coverage.GetProperty("periodFrom").GetString()); Assert.Equal("2024-12-31", coverage.GetProperty("periodTo").GetString());
+        Assert.Equal(0, coverage.GetProperty("sourcesWithoutPeriod").GetInt32()); Assert.Equal(1, coverage.GetProperty("producerCount").GetInt32()); Assert.Equal(1, coverage.GetProperty("plotCount").GetInt32());
+        Assert.Contains("not a legal determination", before.GetProperty("productionCoverageScope").GetString());
+        // Derived from the retained snapshot facts, not from any live row.
+        var plot = before.GetProperty("snapshot").GetProperty("facts").GetProperty("lot").GetProperty("contributions")[0].GetProperty("plots")[0];
+        Assert.Equal(plot.GetProperty("countryCode").GetString(), coverage.GetProperty("countries")[0].GetString());
+
+        // Later live changes: a producer rename, a newer plot revision in another country, and a new lot version that adopts it.
+        await Ok(c.PutAsJsonAsync($"/api/producers/{w.ProducerId}", new { name = "Renamed producer", externalReference = (string?)null, countryCode = "BR", notes = (string?)null, isActive = true }));
+        var newRevision = (await Json(await c.PostAsync($"/api/production-plots/{w.PlotId}/revisions", Raw($$"""{"countryCode":"CO","geometry":{{Bigger}},"areaHectares":null,"note":null}""")), HttpStatusCode.Created)).GetProperty("id").GetGuid();
+        await Ok(LotSupport.Put(c, w.CaseId, new { lotReference = "LOT-NEW" + Guid.NewGuid().ToString("N")[..6], quantity = 10, unit = "Kg", contributions = new[] { new { producerId = w.ProducerId, quantity = 10, unit = "Kg", plots = new[] { new { productionPlotId = w.PlotId, plotRevisionId = newRevision, productionStartDate = "2025-01-01", productionEndDate = "2025-02-01" } } } } }));
+        var live = (await Json(await c.GetAsync($"/api/eudr-cases/{w.CaseId}/dossier"))).GetProperty("productionCoverage");
+        Assert.Equal("CO", live.GetProperty("countries")[0].GetString()); Assert.Equal("2025-01-01", live.GetProperty("periodFrom").GetString()); // the working read model moved on
+
+        var after = await ReviewJson();
+        Assert.Equal(JsonSerializer.Serialize(coverage), JsonSerializer.Serialize(after.GetProperty("productionCoverage"))); // the reviewed coverage did not
+        Assert.Equal(JsonSerializer.Serialize(before.GetProperty("snapshot")), JsonSerializer.Serialize(after.GetProperty("snapshot")));
+        Assert.DoesNotContain("Renamed producer", after.GetRawText());
+        Assert.Equal("Stale", await FreshnessOf(c, w.CaseId)); Assert.Equal(["Lot"], await ChangedAreas(c, w.CaseId)); // only the new lot version stales the review, through the existing fingerprint
+    }
+
     [Fact]
     public async Task The_reviewed_export_contains_exactly_the_pinned_immutable_material_and_survives_later_changes()
     {

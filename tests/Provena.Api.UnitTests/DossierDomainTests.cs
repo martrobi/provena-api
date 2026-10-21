@@ -16,7 +16,7 @@ public sealed class DossierDomainTests
 
     private static ContributionPlotInput Link(Guid plot, Guid revision, DateOnly? start = null, DateOnly? end = null) => new(plot, revision, start, end);
     private static LotContributionInput Contribution(Guid producer, decimal quantity, params ContributionPlotInput[] plots) => new(producer, quantity, QuantityUnit.Kg, [.. plots]);
-    private static CaseLotInput Lot(decimal quantity = 10m, string reference = "LOT-1", string? note = null, params LotContributionInput[] contributions) => new(reference, quantity, QuantityUnit.Kg, note, [.. contributions]);
+    private static CaseLotInput Lot(decimal quantity = 10m, string reference = "LOT-1", string? note = null, params LotContributionInput[] contributions) => new(reference, quantity, QuantityUnit.Kg, note, [.. contributions], null);
 
     // The stored form of an input: one lot row, contribution rows and link rows with generated ids.
     private static (CaseLot Lot, List<LotContribution> Contributions, List<ContributionPlot> Links) Stored(CaseLotInput input)
@@ -55,7 +55,7 @@ public sealed class DossierDomainTests
         var normalized = CaseDossierService.Normalize(Lot(1m, "  LOT-9  ", "   "));
         Assert.Equal("LOT-9", normalized.LotReference); Assert.Null(normalized.Note);
         Assert.Equal("keep", CaseDossierService.Normalize(Lot(1m, "x", "keep")).Note);
-        Assert.Equal("", CaseDossierService.Normalize(new CaseLotInput(null!, 1m, QuantityUnit.Kg, null, [])).LotReference);
+        Assert.Equal("", CaseDossierService.Normalize(new CaseLotInput(null!, 1m, QuantityUnit.Kg, null, [], null)).LotReference);
     }
 
     [Fact]

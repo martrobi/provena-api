@@ -50,4 +50,5 @@ public sealed record ReviewPinsDto(Guid? CaseDossierId, Guid? CaseLotId, Guid? C
 public sealed record ReviewDetailDto(Guid ReviewId, Guid CaseRevisionId, int RevisionNumber, ReviewDecision Decision, string Rationale, Guid ReviewerUserId, DateTimeOffset ReviewedAtUtc, string PolicyId, string PolicyVersion,
     int SnapshotSchemaVersion, int FingerprintVersion, string Fingerprint, IReadOnlyDictionary<string, string> SectionHashes, ReviewPinsDto Pins, CaseRevisionSnapshotV1 Snapshot);
 public sealed record ReviewExportDto(Guid ReviewId, Guid CaseRevisionId, int RevisionNumber, ReviewDecision Decision, string Rationale, Guid ReviewerUserId, DateTimeOffset ReviewedAtUtc, string PolicyId, string PolicyVersion,
-    string Fingerprint, int FingerprintVersion, int SnapshotSchemaVersion, IReadOnlyDictionary<string, string> SectionHashes, CaseRevisionSnapshotV1 Snapshot, DateTimeOffset ExportedAtUtc, string Notice);
+    string Fingerprint, int FingerprintVersion, int SnapshotSchemaVersion, IReadOnlyDictionary<string, string> SectionHashes, CaseRevisionSnapshotV1 Snapshot, DateTimeOffset ExportedAtUtc, string Notice,
+    ProductionCoverageDto ProductionCoverage, string ProductionCoverageScope);

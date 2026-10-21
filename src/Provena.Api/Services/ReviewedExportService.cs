@@ -28,7 +28,8 @@ public sealed class ReviewedExportService(AppDbContext db, ReviewReadService rea
         var geolocation = revision.GeoSubmissionId == null ? null : await db.Geolocations.AsNoTracking().SingleAsync(x => x.Id == revision.GeoSubmissionId, ct);
         var dto = new ReviewExportDto(record.Id, revision.Id, revision.Number, record.Decision, record.Rationale, record.ReviewerUserId, record.ReviewedAtUtc, revision.PolicyId, record.PolicyVersion, revision.Fingerprint,
             revision.FingerprintVersion, revision.SnapshotSchemaVersion, ReviewSnapshot.DeserializeHashes(revision.SectionHashes), snapshot, DateTimeOffset.UtcNow,
-            $"Reviewed dossier snapshot under policy {revision.PolicyId} version {record.PolicyVersion}; not a legal compliance determination, risk assessment or DDS.");
+            $"Reviewed dossier snapshot under policy {revision.PolicyId} version {record.PolicyVersion}; not a legal compliance determination, risk assessment or DDS.",
+            ProductionCoverage.FromSnapshot(snapshot.Facts.Lot), ProductionCoverage.Scope);
 
         audit.Add(caseId, "CaseReviewExported", $"Review {record.Id} (revision {revision.Id}, number {revision.Number}) exported.");
         await db.SaveChangesAsync(ct);

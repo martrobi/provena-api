@@ -11,6 +11,7 @@ namespace Provena.Api.Services;
 // completeness, sufficiency or review decision, and it never touches requirements or the case status. Audit text carries identifiers only.
 public sealed class CaseDossierService(AppDbContext db, TenantContext tenant, CaseService cases, AuditService audit, IValidator<CaseLotInput> validator)
 {
+    public const string HistoryChangedReason = "LotHistoryChanged";
     private const string ProducerNotFound = "Producer was not found in your organization.";
     private const string PlotNotFound = "Production plot was not found in your organization.";
     private const string RevisionNotFound = "Plot revision was not found for the production plot in your organization.";
@@ -23,7 +24,8 @@ public sealed class CaseDossierService(AppDbContext db, TenantContext tenant, Ca
         if (dossier == null) return null;
         var lot = await db.CaseLots.AsNoTracking().Current().SingleAsync(x => x.CaseDossierId == dossier.Id, ct);
         var shipment = await db.Shipments.AsNoTracking().SingleAsync(x => x.Id == c.ShipmentId, ct);
-        return new(dossier.Id, caseId, dossier.CreatedAtUtc, shipment.Quantity, shipment.Unit, (await Lots([lot], ct)).Single());
+        var current = (await Lots([lot], ct)).Single();
+        return new(dossier.Id, caseId, dossier.CreatedAtUtc, shipment.Quantity, shipment.Unit, current, ProductionCoverage.FromLot(current));
     }
 
     // Retained lot versions, newest first. Unpaginated: per-case, pilot scale.
@@ -45,6 +47,9 @@ public sealed class CaseDossierService(AppDbContext db, TenantContext tenant, Ca
 
         var dossier = await db.CaseDossiers.SingleOrDefaultAsync(x => x.EudrCaseId == caseId, ct);
         var current = dossier == null ? null : await db.CaseLots.Current().SingleOrDefaultAsync(x => x.CaseDossierId == dossier.Id, ct);
+        // The caller replaces exactly the version they loaded (null: none existed). Compared under the case lock and BEFORE the identical-resubmission no-op, so a stale client never gets a silent success.
+        if (lot.ExpectedCurrentLotId != current?.Id)
+            throw new ApiException(409, "Lot history changed since it was loaded", new { reason = HistoryChangedReason, currentLotId = current?.Id, currentLotNumber = current?.Number });
         var currentContributions = new List<LotContribution>(); var currentLinks = new List<ContributionPlot>();
         if (current != null)
         {
