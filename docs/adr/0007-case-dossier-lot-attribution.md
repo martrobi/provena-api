@@ -4,7 +4,7 @@
 - Decision status: Accepted
 - Implementation status: Implemented. The persistence model (`CaseDossier`, `CaseLot`, `LotContribution`, `ContributionPlot`), guards, `Current()`, migration `CaseDossier`, the internal API (`CaseDossierService`, three routes), the shipment lock and the export additions.
 - Decision owner / approval evidence: The owner approved the case-dossier/lot-sources implementation plan supplied with the corresponding implementation request (2026-10-13, revision 4): D1-D5 approved, revision-2 corrections 1-5 and the revision-3 semantic correction incorporated. The original plan artifact was not retained in the repository.
-- Amendments: Production Coverage & Lot Concurrency v1 (section "Amendment" below, commit `a9ded9a`).
+- Amendments: Production Coverage & Lot Concurrency v1 (section "Amendment" below, commit `a9ded9a`); Source Quantity Allocation v1 ([ADR 0014](0014-source-quantity-allocation.md), commit `7770612`, section "Amendment: Source Quantity Allocation v1" below).
 - Supersedes / superseded by: refines [ADR 0002](0002-supplier-producer-production-plot.md) and builds on [ADR 0005](0005-retained-evidence-append-only-rows.md) and [ADR 0006](0006-production-provenance-plot-revisions.md) (supersedes none of them).
 
 ## Context and evidence
@@ -60,6 +60,10 @@ Source: `Domain/Dossiers/CaseDossier.cs`, `Data/AppDbContext.cs`, `Data/Retained
 - **No migration.** No entity, column, index or constraint was added or changed; the model snapshot is unchanged (pinned by a test).
 - **Not solved (still open):** the Supplier-Producer relationship, producer/plot duplicate identity rules, legal production-date windows, geometry precision/area policy, `GeoSubmission` to plot conversion, per-plot quantity allocation, country risk, legality and deforestation findings, Annex I scope and split/merge/processing lineage. Multi-lot stays unsupported.
 - Client handoff: [production coverage and lot concurrency](../frontend-handoffs/2026-10-production-coverage-and-lot-concurrency.md).
+
+## Amendment: Source Quantity Allocation v1
+
+- Date: 2026-10-23. Implementation commit `7770612`; decided and documented in [ADR 0014](0014-source-quantity-allocation.md). The statements above that a `ContributionPlot` "carries no quantity" and that "quantity is per producer, not per plot" describe the model as first implemented. Since this amendment a `ContributionPlot` can carry an optional, retained `AllocatedQuantity` (`numeric(20,6)`, null = not recorded, > 0, lot unit, exact decimal equality, no conversion or tolerance), written only through the existing lot version write; the producer-level `LotContribution.Quantity` and the `Σ contributions <= lot` rule are unchanged. No new entity, route or concurrency token; `ProductionSource`/`ProductionEvent` stay rejected. The undecided items "per-plot quantities" and "per-plot allocation" are thereby decided only for this optional attribution; mandatory allocation, multi-lot, split/merge/processing and conversion remain open.
 
 ## Revisit trigger
 
