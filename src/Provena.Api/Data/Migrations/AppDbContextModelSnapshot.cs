@@ -1376,6 +1376,10 @@ namespace Provena.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<decimal?>("AllocatedQuantity")
+                        .HasPrecision(20, 6)
+                        .HasColumnType("numeric(20,6)");
+
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -1416,7 +1420,10 @@ namespace Provena.Api.Data.Migrations
 
                     b.HasIndex("OrganizationId", "ProductionPlotId", "PlotRevisionId");
 
-                    b.ToTable("ContributionPlots");
+                    b.ToTable("ContributionPlots", t =>
+                        {
+                            t.HasCheckConstraint("CK_ContributionPlots_AllocatedQuantityPositive", "\"AllocatedQuantity\" IS NULL OR \"AllocatedQuantity\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("Provena.Api.Domain.EudrCase", b =>

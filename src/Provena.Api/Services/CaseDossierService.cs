@@ -12,6 +12,9 @@ namespace Provena.Api.Services;
 public sealed class CaseDossierService(AppDbContext db, TenantContext tenant, CaseService cases, AuditService audit, IValidator<CaseLotInput> validator)
 {
     public const string HistoryChangedReason = "LotHistoryChanged";
+    public const string AllocationsNotSuppliedReason = "SourceAllocationsNotSupplied";
+    public const string ClearNotApplicableReason = "ClearSourceAllocationsNotApplicable";
+    public const string PlotAllocationExceedsContributionReason = "PlotAllocationExceedsContribution";
     private const string ProducerNotFound = "Producer was not found in your organization.";
     private const string PlotNotFound = "Production plot was not found in your organization.";
     private const string RevisionNotFound = "Plot revision was not found for the production plot in your organization.";
@@ -56,8 +59,10 @@ public sealed class CaseDossierService(AppDbContext db, TenantContext tenant, Ca
             currentContributions = await db.LotContributions.AsNoTracking().Where(x => x.CaseLotId == current.Id).ToListAsync(ct);
             var contributionIds = currentContributions.Select(x => x.Id).ToList();
             currentLinks = await db.ContributionPlots.AsNoTracking().Where(x => contributionIds.Contains(x.LotContributionId)).ToListAsync(ct);
-            if (IsIdentical(lot, current, currentContributions, currentLinks)) { await tx.CommitAsync(ct); return (await Dossier(caseId, ct))!; }
         }
+        // Source Quantity Allocation v1: recorded allocations are never erased or kept implicitly by omission. Checked after the concurrency check and before the no-op, so an old client that omits the field gets a 400, never a silent clear.
+        EnsureAllocationsNotSilentlyChanged(lot, currentLinks);
+        if (current != null && IsIdentical(lot, current, currentContributions, currentLinks)) { await tx.CommitAsync(ct); return (await Dossier(caseId, ct))!; }
 
         // LotReference is a versioned reference: only other CURRENT lots in the organization conflict. The partial unique index is the race backstop (23505 -> 409).
         var ownDossierId = dossier?.Id ?? Guid.Empty;
@@ -99,6 +104,7 @@ public sealed class CaseDossierService(AppDbContext db, TenantContext tenant, Ca
         }
 
         Reconcile(lot.Quantity, lot.Contributions.Select(x => x.Quantity)); // 400 on over-allocation
+        ReconcileAllocations(lot); // 400 when the plot allocations of a contribution exceed it
 
         var now = DateTimeOffset.UtcNow;
         if (dossier == null) { dossier = new CaseDossier { OrganizationId = tenant.OrganizationId, EudrCaseId = caseId, CreatedByUserId = tenant.UserId }; db.CaseDossiers.Add(dossier); }
@@ -116,7 +122,7 @@ public sealed class CaseDossierService(AppDbContext db, TenantContext tenant, Ca
             var row = new LotContribution { OrganizationId = tenant.OrganizationId, CaseLotId = saved.Id, ProducerId = contribution.ProducerId, Quantity = contribution.Quantity, Unit = contribution.Unit };
             db.LotContributions.Add(row);
             foreach (var link in contribution.Plots)
-                db.ContributionPlots.Add(new ContributionPlot { OrganizationId = tenant.OrganizationId, LotContributionId = row.Id, ProducerId = contribution.ProducerId, ProductionPlotId = link.ProductionPlotId, PlotRevisionId = link.PlotRevisionId, ProductionStartDate = link.ProductionStartDate, ProductionEndDate = link.ProductionEndDate });
+                db.ContributionPlots.Add(new ContributionPlot { OrganizationId = tenant.OrganizationId, LotContributionId = row.Id, ProducerId = contribution.ProducerId, ProductionPlotId = link.ProductionPlotId, PlotRevisionId = link.PlotRevisionId, ProductionStartDate = link.ProductionStartDate, ProductionEndDate = link.ProductionEndDate, AllocatedQuantity = link.AllocatedQuantity });
         }
         audit.Add(caseId, "CaseLotSaved", $"Case lot version {saved.Id} (number {number}) saved" + (current == null ? "." : $"; superseded {current.Id}."));
         c.UpdatedAtUtc = now;
@@ -139,6 +145,26 @@ public sealed class CaseDossierService(AppDbContext db, TenantContext tenant, Ca
         return new(allocated, lotQuantity - allocated, allocated == lotQuantity ? QuantityReconciliationStatus.Reconciled : QuantityReconciliationStatus.UnderAllocated);
     }
 
+    // A request that carries allocations is validated normally (the validator already forbids combining them with an explicit clear). Without allocations: a lot with none recorded
+    // may be saved only without the clear flag; a lot with recorded allocations needs either allocations or the explicit clear. Exact typed reasons, nothing is written.
+    public static void EnsureAllocationsNotSilentlyChanged(CaseLotInput input, IReadOnlyCollection<ContributionPlot> currentLinks)
+    {
+        var currentRecorded = currentLinks.Any(l => l.AllocatedQuantity != null);
+        var incomingRecorded = input.Contributions.Any(c => c.Plots.Any(p => p.AllocatedQuantity != null));
+        if (input.ClearSourceAllocations && !currentRecorded)
+            throw new ApiException(400, "There are no recorded source allocations to clear.", new { reason = ClearNotApplicableReason });
+        if (currentRecorded && !incomingRecorded && !input.ClearSourceAllocations)
+            throw new ApiException(400, "The current lot has recorded source allocations: supply allocatedQuantity for every plot link or set clearSourceAllocations to true.", new { reason = AllocationsNotSuppliedReason });
+    }
+
+    // Per producer contribution: the plot allocations may not exceed the contribution quantity (under-allocation is a storable draft). Exact decimal comparison, no tolerance.
+    public static void ReconcileAllocations(CaseLotInput input)
+    {
+        foreach (var contribution in input.Contributions)
+            if (contribution.Plots.Sum(p => p.AllocatedQuantity ?? 0m) > contribution.Quantity)
+                throw new ApiException(400, "Plot allocations exceed the contribution quantity.", new { reason = PlotAllocationExceedsContributionReason, producerId = contribution.ProducerId });
+    }
+
     // Order-independent equality of a normalized input and the stored current version: contributions are a set keyed by producer, links a set keyed
     // by (plot, revision) within a contribution. Quantities compare by decimal value (1.5 == 1.500000).
     public static bool IsIdentical(CaseLotInput input, CaseLot current, IReadOnlyCollection<LotContribution> contributions, IReadOnlyCollection<ContributionPlot> links)
@@ -154,7 +180,7 @@ public sealed class CaseDossierService(AppDbContext db, TenantContext tenant, Ca
             foreach (var link in contribution.Plots)
             {
                 var match = rowLinks.SingleOrDefault(x => x.ProductionPlotId == link.ProductionPlotId && x.PlotRevisionId == link.PlotRevisionId);
-                if (match == null || match.ProductionStartDate != link.ProductionStartDate || match.ProductionEndDate != link.ProductionEndDate) return false;
+                if (match == null || match.ProductionStartDate != link.ProductionStartDate || match.ProductionEndDate != link.ProductionEndDate || match.AllocatedQuantity != link.AllocatedQuantity) return false;
             }
         }
         return true;
@@ -186,10 +212,10 @@ public sealed class CaseDossierService(AppDbContext db, TenantContext tenant, Ca
             var dtos = rows.Select(row => new LotContributionDto(row.Id, row.ProducerId, producers[row.ProducerId].Name, producers[row.ProducerId].IsActive, row.Quantity, row.Unit,
                     links.Where(l => l.LotContributionId == row.Id).Select(l => new ContributionPlotDto(l.Id, l.ProductionPlotId, plots[l.ProductionPlotId].Name, plots[l.ProductionPlotId].IsActive, l.PlotRevisionId,
                         revisions[l.PlotRevisionId].Number, revisions[l.PlotRevisionId].CountryCode, revisions[l.PlotRevisionId].GeometryType, revisions[l.PlotRevisionId].AreaHectares, revisions[l.PlotRevisionId].SupersededAtUtc,
-                        l.ProductionStartDate, l.ProductionEndDate))
+                        l.ProductionStartDate, l.ProductionEndDate, l.AllocatedQuantity))
                         .OrderBy(p => p.PlotName, StringComparer.Ordinal).ThenBy(p => p.ProductionPlotId).ToList()))
                 .OrderBy(x => x.ProducerName, StringComparer.Ordinal).ThenBy(x => x.ProducerId).ToList();
-            return new CaseLotDto(lot.Id, lot.Number, lot.LotReference, lot.Quantity, lot.Unit, lot.Note, Reconcile(lot.Quantity, rows.Select(r => r.Quantity)), dtos, lot.CreatedByUserId, lot.CreatedAtUtc, lot.SupersededAtUtc);
+            return new CaseLotDto(lot.Id, lot.Number, lot.LotReference, lot.Quantity, lot.Unit, lot.Note, Reconcile(lot.Quantity, rows.Select(r => r.Quantity)), dtos, lot.CreatedByUserId, lot.CreatedAtUtc, lot.SupersededAtUtc, SourceAllocation.FromRows(lot, rows, links));
         }).ToList();
     }
 }

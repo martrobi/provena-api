@@ -31,7 +31,8 @@ public sealed class LotContribution : TenantEntity
     public QuantityUnit Unit { get; set; }
 }
 
-// Source attribution of a contribution to one plot at one exact, pinned revision. Fully immutable; carries no quantity.
+// Source attribution of a contribution to one plot at one exact, pinned revision. Fully immutable (Source Quantity Allocation v1: a changed allocation is a new CaseLot version).
+// AllocatedQuantity is the part of the lot's material attributed to this plot, in the contribution/lot unit (no unit column); null means no allocation was recorded (every legacy row).
 // ProducerId is a denormalized copy of the contribution's producer, kept so composite foreign keys enforce the producer -> plot -> revision chain.
 // Production period rules (both or neither, start <= end) are validated by the API, not by SQL.
 public sealed class ContributionPlot : TenantEntity
@@ -42,4 +43,5 @@ public sealed class ContributionPlot : TenantEntity
     public Guid PlotRevisionId { get; set; }
     public DateOnly? ProductionStartDate { get; set; }
     public DateOnly? ProductionEndDate { get; set; }
+    public decimal? AllocatedQuantity { get; set; }
 }

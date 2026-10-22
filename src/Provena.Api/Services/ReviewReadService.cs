@@ -35,7 +35,7 @@ public sealed class ReviewReadService(AppDbContext db)
         return (revision, record);
     }
 
-    public static ReviewDetailDto ToDetail(CaseRevision r, ReviewRecord rec, IReadOnlyList<Guid> documentIds, IReadOnlyList<Guid> linkIds, CaseRevisionSnapshotV1 snapshot) => new(
+    public static ReviewDetailDto ToDetail(CaseRevision r, ReviewRecord rec, IReadOnlyList<Guid> documentIds, IReadOnlyList<Guid> linkIds, IReviewSnapshot snapshot) => new(
         rec.Id, r.Id, r.Number, rec.Decision, rec.Rationale, rec.ReviewerUserId, rec.ReviewedAtUtc, r.PolicyId, rec.PolicyVersion, r.SnapshotSchemaVersion, r.FingerprintVersion, r.Fingerprint,
         ReviewSnapshot.DeserializeHashes(r.SectionHashes),
         new(r.CaseDossierId, r.CaseLotId, r.CaseApplicabilityId, r.CaseRecipientStatementId, r.CaseMasterDataVersionId, r.GeoSubmissionId, r.SupplierSubmissionId, documentIds, linkIds), snapshot);

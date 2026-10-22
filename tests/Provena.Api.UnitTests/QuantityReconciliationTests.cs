@@ -162,7 +162,7 @@ public sealed class QuantityReconciliationTests
     [Fact]
     public void Quantity_items_keep_their_codes_order_subjects_and_statuses()
     {
-        var items = CompletenessEvaluator.Evaluate(Complete()).Items.Where(i => i.Group == CompletenessGroup.Quantity).ToList();
+        var items = CompletenessEvaluator.Evaluate(Complete()).Items.Where(i => i.Group == CompletenessGroup.Quantity && i.Code != SourceAllocation.ItemCode).ToList(); // the policy v3 allocation item is covered by SourceAllocationTests
         Assert.Equal(["LOT_PRESENT", "SHIPMENT_LOT_QUANTITY_MATCH", "SUPPLIER_CONFIRMED_QUANTITY_MATCH", "LOT_RECONCILED"], items.Select(i => i.Code));
         Assert.All(items, i => Assert.Equal(CompletenessItemStatus.Satisfied, i.Status));
         Assert.Equal(["CaseLot", "CaseLot", "SupplierSubmission", "CaseLot"], items.Select(i => i.SubjectType));
@@ -177,7 +177,7 @@ public sealed class QuantityReconciliationTests
         Assert.Equal(CompletenessItemStatus.Missing, Item(WithoutQuantityConfirmation(Complete()), "SUPPLIER_CONFIRMED_QUANTITY_MATCH").Status);
 
         var noLot = Complete() with { Dossier = null, Lot = null, Contributions = [] };
-        var noLotItems = CompletenessEvaluator.Evaluate(noLot).Items.Where(i => i.Group == CompletenessGroup.Quantity).ToList();
+        var noLotItems = CompletenessEvaluator.Evaluate(noLot).Items.Where(i => i.Group == CompletenessGroup.Quantity && i.Code != SourceAllocation.ItemCode).ToList();
         Assert.Equal(["LOT_PRESENT", "SHIPMENT_LOT_QUANTITY_MATCH", "SUPPLIER_CONFIRMED_QUANTITY_MATCH", "LOT_RECONCILED"], noLotItems.Select(i => i.Code));
         Assert.Equal([CompletenessItemStatus.Missing, CompletenessItemStatus.Missing, CompletenessItemStatus.Satisfied, CompletenessItemStatus.Missing], noLotItems.Select(i => i.Status));
     }
@@ -231,7 +231,7 @@ public sealed class QuantityReconciliationTests
     {
         // A policy-version change never stales a review (ADR 0008); the closure recheck is what keeps a mismatched v1 acceptance from closing.
         var f = Complete();
-        var fingerprint = DossierFingerprint.Compute(f);
+        var fingerprint = DossierFingerprint.Compute(f, 1);
         var revision = new CaseRevision { Id = Guid.NewGuid(), Number = 1, PolicyId = CompletenessPolicy.Id, PolicyVersion = "1", FingerprintVersion = 1, Fingerprint = fingerprint.Fingerprint, SectionHashes = ReviewSnapshot.SerializeHashes(fingerprint.SectionHashes) };
         var record = new ReviewRecord { Id = Guid.NewGuid(), CaseRevisionId = revision.Id, Decision = ReviewDecision.AcceptedAsCompleteUnderPolicy, ReviewedAtUtc = DateTimeOffset.UtcNow, PolicyVersion = "1" };
         var (freshness, latest) = ReviewFreshnessService.Evaluate(revision, record, f);
@@ -242,9 +242,9 @@ public sealed class QuantityReconciliationTests
     }
 
     [Fact]
-    public void The_policy_is_version_2_and_states_the_single_lot_assumption_and_the_implied_unit()
+    public void The_policy_states_the_single_lot_assumption_and_the_implied_unit_from_version_2_on()
     {
-        Assert.Equal("2", CompletenessPolicy.Version);
+        Assert.Equal("3", CompletenessPolicy.Version);
         var limitations = string.Join(' ', CompletenessPolicy.Limitations);
         foreach (var expected in new[] { "no unit conversion", "no tolerance", "single-lot assumption", "supplier-confirmed quantity", "taken to be in the shipment unit" }) Assert.Contains(expected, limitations);
     }

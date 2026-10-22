@@ -157,7 +157,7 @@ public sealed class ReviewTests
     }
 
     // ---- snapshot --------------------------------------------------------------------------------------------------------------------------
-    private static CaseRevisionSnapshotV1 Snapshot(DossierFacts f)
+    private static CaseRevisionSnapshotV2 Snapshot(DossierFacts f)
     {
         var producer = new Producer { Id = Guid.Parse("00000000-0000-0000-0000-0000000000c1"), Name = "Producer label", ExternalReference = "P-1", CountryCode = "BR" };
         var plot = new ProductionPlot { Id = Guid.Parse("00000000-0000-0000-0000-0000000000d1"), ProducerId = producer.Id, Name = "Plot label", ExternalReference = "PL-1" };
@@ -169,7 +169,7 @@ public sealed class ReviewTests
     {
         var facts = Complete(); facts.MasterData!.ProductName = "Unique product name"; facts.MasterData.ProductCatalogueDescription = "Unique catalogue text"; facts.Contributions[0].Links[0].Revision.SupersededAtUtc = DateTimeOffset.UtcNow;
         var snapshot = Snapshot(facts); var json = ReviewSnapshot.Serialize(snapshot);
-        Assert.Equal(1, snapshot.SchemaVersion); Assert.Equal(json, ReviewSnapshot.Serialize(ReviewSnapshot.Deserialize(json, 1)));
+        Assert.Equal(2, snapshot.SchemaVersion); Assert.Equal(json, ReviewSnapshot.Serialize(ReviewSnapshot.Deserialize(json, 2)));
         using var doc = JsonDocument.Parse(json); var root = doc.RootElement;
         Assert.Equal(["schemaVersion", "facts", "context", "completeness"], root.EnumerateObject().Select(p => p.Name).ToArray());
         var factsText = root.GetProperty("facts").GetRawText();
@@ -187,7 +187,7 @@ public sealed class ReviewTests
     {
         var a = Complete(); var b = Complete(); b.MasterData!.ProductName = "Other"; b.MasterData.Id = Guid.NewGuid();
         Assert.Equal(JsonSerializer.Serialize(Snapshot(a).Facts), JsonSerializer.Serialize(Snapshot(b).Facts));
-        Assert.Throws<NotSupportedException>(() => ReviewSnapshot.Deserialize("{}", 2));
+        Assert.Throws<NotSupportedException>(() => ReviewSnapshot.Deserialize("{}", 3));
         var withoutLot = Complete() with { Lot = null, Dossier = null, Contributions = [] }; Assert.Null(Snapshot(withoutLot).Facts.Lot);
         Assert.Null(Snapshot(Complete() with { MasterData = null, Applicability = null, Recipients = null, RecipientEntries = [], Geolocation = null, Submission = null }).Facts.MasterData);
     }

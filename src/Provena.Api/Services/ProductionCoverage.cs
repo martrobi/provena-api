@@ -31,7 +31,9 @@ public static class ProductionCoverage
         Derive(lot.Contributions.Select(c => c.ProducerId), lot.Contributions.SelectMany(c => c.Plots.Select(p => new CoverageSource(c.ProducerId, p.ProductionPlotId, p.CountryCode, p.ProductionStartDate, p.ProductionEndDate))));
 
     // The retained review snapshot only: never a live producer, plot, revision or lot row.
-    public static ProductionCoverageDto FromSnapshot(SnapshotLotV1? lot) => lot == null ? Empty :
+    public static ProductionCoverageDto FromSnapshot(SnapshotLotV1? lot) => FromSnapshotLot(lot?.ToV2());
+
+    public static ProductionCoverageDto FromSnapshotLot(SnapshotLotV2? lot) => lot == null ? Empty :
         Derive(lot.Contributions.Select(c => c.ProducerId), lot.Contributions.SelectMany(c => c.Plots.Select(p => new CoverageSource(c.ProducerId, p.PlotId, p.CountryCode, p.ProductionStartDate, p.ProductionEndDate))));
 
     // Comparable only when there is at least one source country and the supplier submission states a country. The submission states exactly one country of production,

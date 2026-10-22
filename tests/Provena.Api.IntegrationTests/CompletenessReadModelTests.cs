@@ -169,9 +169,9 @@ public sealed class CompletenessReadModelTests(ApiFactory factory)
         var caseId = (await Json(await c.PostAsJsonAsync("/api/shipments", new { referenceNumber = "FRESH-" + tag, supplierId = supplier, productId = product, quantity = 10, unit = "Kg" }), HttpStatusCode.Created)).GetProperty("eudrCaseId").GetGuid();
         var result = await Completeness(c, caseId);
 
-        Assert.Equal("provena-pilot-completeness", result.GetProperty("policy").GetProperty("id").GetString()); Assert.Equal("2", result.GetProperty("policy").GetProperty("version").GetString());
+        Assert.Equal("provena-pilot-completeness", result.GetProperty("policy").GetProperty("id").GetString()); Assert.Equal("3", result.GetProperty("policy").GetProperty("version").GetString());
         Assert.NotEmpty(result.GetProperty("policy").GetProperty("limitations").EnumerateArray());
-        Assert.Matches("^[0-9a-f]{64}$", Fingerprint(result)); Assert.Equal(1, result.GetProperty("fingerprintVersion").GetInt32());
+        Assert.Matches("^[0-9a-f]{64}$", Fingerprint(result)); Assert.Equal(2, result.GetProperty("fingerprintVersion").GetInt32());
         Assert.Equal("NotRecorded", result.GetProperty("applicability").GetProperty("status").GetString()); Assert.Equal(JsonValueKind.Null, result.GetProperty("applicability").GetProperty("currentVersionId").ValueKind);
         Assert.Equal("Incomplete", result.GetProperty("dataCoverage").GetString()); Assert.Equal("EvidenceMissing", result.GetProperty("evidenceReadiness").GetString());
         Assert.Equal("None", result.GetProperty("reviewFreshness").GetString()); Assert.Equal(JsonValueKind.Null, result.GetProperty("latestReview").ValueKind);

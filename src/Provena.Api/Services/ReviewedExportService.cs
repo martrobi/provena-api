@@ -23,13 +23,14 @@ public sealed class ReviewedExportService(AppDbContext db, ReviewReadService rea
         var snapshot = ReviewSnapshot.Deserialize(revision.SnapshotJson, revision.SnapshotSchemaVersion);
         var documents = await (from pin in db.CaseRevisionDocuments.AsNoTracking() join d in db.Documents.AsNoTracking() on pin.CaseDocumentId equals d.Id
                                where pin.CaseRevisionId == revision.Id orderby d.Id select d).ToListAsync(ct);
-        var revisionIds = snapshot.Facts.Lot?.Contributions.SelectMany(c => c.Plots).Select(p => p.RevisionId).Distinct().ToList() ?? [];
+        var lotView = snapshot.LotView;
+        var revisionIds = lotView?.Contributions.SelectMany(c => c.Plots).Select(p => p.RevisionId).Distinct().ToList() ?? [];
         var plotRevisions = revisionIds.Count == 0 ? [] : await db.PlotRevisions.AsNoTracking().Where(x => revisionIds.Contains(x.Id)).OrderBy(x => x.Id).ToListAsync(ct);
         var geolocation = revision.GeoSubmissionId == null ? null : await db.Geolocations.AsNoTracking().SingleAsync(x => x.Id == revision.GeoSubmissionId, ct);
         var dto = new ReviewExportDto(record.Id, revision.Id, revision.Number, record.Decision, record.Rationale, record.ReviewerUserId, record.ReviewedAtUtc, revision.PolicyId, record.PolicyVersion, revision.Fingerprint,
             revision.FingerprintVersion, revision.SnapshotSchemaVersion, ReviewSnapshot.DeserializeHashes(revision.SectionHashes), snapshot, DateTimeOffset.UtcNow,
             $"Reviewed dossier snapshot under policy {revision.PolicyId} version {record.PolicyVersion}; not a legal compliance determination, risk assessment or DDS.",
-            ProductionCoverage.FromSnapshot(snapshot.Facts.Lot), ProductionCoverage.Scope);
+            ProductionCoverage.FromSnapshotLot(lotView), ProductionCoverage.Scope, SourceAllocation.FromSnapshot(lotView), SourceAllocation.Scope);
 
         audit.Add(caseId, "CaseReviewExported", $"Review {record.Id} (revision {revision.Id}, number {revision.Number}) exported.");
         await db.SaveChangesAsync(ct);
@@ -38,7 +39,7 @@ public sealed class ReviewedExportService(AppDbContext db, ReviewReadService rea
         var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
         try
         {
-            var reference = SafeName(snapshot.Facts.Shipment.Reference);
+            var reference = SafeName(snapshot.ShipmentReference);
             using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
             {
                 var prefix = $"case-{reference}-review-{revision.Number}/";

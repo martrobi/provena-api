@@ -1188,5 +1188,88 @@ INSERT INTO "RiskAssessments" ("Id","CreatedAtUtc","UpdatedAtUtc","OrganizationI
         Assert.Equal(0, await db.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM information_schema.columns WHERE table_name = 'CaseClosures' AND column_name = 'RiskAssessmentId'").SingleAsync());
         Assert.Equal(1, await Count(db, "ReviewRecords")); Assert.Equal(1, await Count(db, "Cases"));
     }
+
+    // ---- Source Quantity Allocation v1 ------------------------------------------------------------------------------------------------------
+    private const string AllocationMigration = "20261022221125_SourceQuantityAllocation";
+    private const string AllocationColumn = """SELECT count(*)::int AS "Value" FROM information_schema.columns WHERE table_name = 'ContributionPlots' AND column_name = 'AllocatedQuantity'""";
+
+    [Fact]
+    public async Task Clean_database_has_the_nullable_numeric_allocation_column_and_a_positive_only_check()
+    {
+        await using var db = NewContext();
+        Assert.False(db.Database.HasPendingModelChanges(), "The generated snapshot must match the DbContext.");
+        await db.Database.MigrateAsync();
+        Assert.Contains(AllocationMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+        var column = await db.Database.SqlQueryRaw<string>("""SELECT data_type || ' ' || numeric_precision || ',' || numeric_scale || ' nullable=' || is_nullable || ' default=' || coalesce(column_default, 'none') AS "Value" FROM information_schema.columns WHERE table_name = 'ContributionPlots' AND column_name = 'AllocatedQuantity'""").SingleAsync();
+        Assert.Equal("numeric 20,6 nullable=YES default=none", column);
+        var check = await db.Database.SqlQueryRaw<string>("""SELECT pg_get_constraintdef(oid) AS "Value" FROM pg_constraint WHERE conname = 'CK_ContributionPlots_AllocatedQuantityPositive' AND conrelid = '"ContributionPlots"'::regclass""").SingleAsync();
+        Assert.Contains("AllocatedQuantity", check); Assert.Contains("IS NULL", check); Assert.Contains("> (0)::numeric", check);
+        // No other change: the existing indexes and composite keys of ContributionPlots are untouched.
+        Assert.Equal(["IX_ContributionPlots_LotContributionId_ProductionPlotId"], await db.Database.SqlQueryRaw<string>("""SELECT indexname AS "Value" FROM pg_indexes WHERE tablename = 'ContributionPlots' AND indexdef LIKE '%UNIQUE%' AND indexname NOT LIKE 'PK_%' AND indexname NOT LIKE 'AK_%'""").ToListAsync());
+    }
+
+    [Fact]
+    public async Task The_allocation_check_rejects_zero_and_negative_values_and_accepts_null_and_positive_ones()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.Database.MigrateAsync();
+        await InsertDossierGraph(db, seed);
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM "ContributionPlots" WHERE "AllocatedQuantity" IS NULL""").SingleAsync()); // a plot link without the column is null
+        foreach (var bad in new[] { "0", "-1", "-0.000001" })
+        {
+            var failure = await Assert.ThrowsAnyAsync<Exception>(() => db.Database.ExecuteSqlRawAsync($"""UPDATE "ContributionPlots" SET "AllocatedQuantity" = {bad}"""));
+            Assert.Contains("CK_ContributionPlots_AllocatedQuantityPositive", failure.ToString());
+        }
+        await db.Database.ExecuteSqlRawAsync("""UPDATE "ContributionPlots" SET "AllocatedQuantity" = 0.000001""");
+        Assert.Equal(0.000001m, await db.Database.SqlQueryRaw<decimal>("""SELECT "AllocatedQuantity" AS "Value" FROM "ContributionPlots" """).SingleAsync());
+        await db.Database.ExecuteSqlRawAsync("""UPDATE "ContributionPlots" SET "AllocatedQuantity" = NULL""");
+    }
+
+    [Fact]
+    public async Task The_allocation_migration_keeps_legacy_links_null_without_backfill_and_its_down_drops_only_the_column()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.GetService<IMigrator>().MigrateAsync(RiskMigration);
+        await InsertDossierGraph(db, seed);
+        Assert.Equal(0, await db.Database.SqlQueryRaw<int>(AllocationColumn).SingleAsync());
+
+        await db.Database.MigrateAsync(); // no backfill: the single-plot link is NOT given the contribution quantity
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>(AllocationColumn).SingleAsync());
+        Assert.Equal(1, await Count(db, "ContributionPlots"));
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM "ContributionPlots" WHERE "AllocatedQuantity" IS NULL""").SingleAsync());
+
+        await db.GetService<IMigrator>().MigrateAsync(RiskMigration); // legacy (null) links never block a rollback
+        Assert.DoesNotContain(AllocationMigration, await db.Database.GetAppliedMigrationsAsync()); Assert.Contains(RiskMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Equal(0, await db.Database.SqlQueryRaw<int>(AllocationColumn).SingleAsync());
+        Assert.Equal(0, await db.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM pg_constraint WHERE conname = 'CK_ContributionPlots_AllocatedQuantityPositive'""").SingleAsync());
+        Assert.Equal(1, await Count(db, "ContributionPlots")); Assert.Equal(1, await Count(db, "CaseLots")); Assert.Equal(1, await Count(db, "Cases"));
+    }
+
+    [Fact]
+    public async Task The_allocation_down_is_refused_while_any_link_carries_an_allocation_and_leaves_schema_and_rows_intact()
+    {
+        await using var db = NewContext();
+        await db.GetService<IMigrator>().MigrateAsync(InitialMigration);
+        var seed = await SeedEvidenceAtInitialSchema(db);
+        await db.GetService<IMigrator>().MigrateAsync(AllocationMigration);
+        await InsertDossierGraph(db, seed);
+        await db.Database.ExecuteSqlRawAsync("""UPDATE "ContributionPlots" SET "AllocatedQuantity" = 5.5""");
+
+        var failure = await Assert.ThrowsAnyAsync<Exception>(() => db.GetService<IMigrator>().MigrateAsync(RiskMigration));
+        Assert.Contains("Source allocations exist; rollback would destroy history", failure.ToString());
+        Assert.Contains(AllocationMigration, await db.Database.GetAppliedMigrationsAsync()); // the schema and the retained value survive the refusal
+        Assert.Equal(1, await db.Database.SqlQueryRaw<int>(AllocationColumn).SingleAsync());
+        Assert.Equal(5.5m, await db.Database.SqlQueryRaw<decimal>("""SELECT "AllocatedQuantity" AS "Value" FROM "ContributionPlots" """).SingleAsync());
+
+        await db.Database.ExecuteSqlRawAsync("""UPDATE "ContributionPlots" SET "AllocatedQuantity" = NULL""");
+        await db.GetService<IMigrator>().MigrateAsync(RiskMigration);
+        Assert.DoesNotContain(AllocationMigration, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Equal(0, await db.Database.SqlQueryRaw<int>(AllocationColumn).SingleAsync());
+    }
 #pragma warning restore EF1002
 }

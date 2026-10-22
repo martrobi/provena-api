@@ -114,14 +114,14 @@ public sealed class ApplicabilityHardeningDomainTests
     [Fact]
     public void Requires_legal_review_changes_the_applicability_section_hash_through_the_existing_canonical_form_without_a_new_fingerprint_version()
     {
-        var baseline = DossierFingerprint.Compute(CompletenessTests.Complete());
-        var review = DossierFingerprint.Compute(WithScope(RegulatoryScope.RequiresLegalReview));
-        Assert.Equal(1, DossierFingerprint.CurrentVersion); Assert.Equal([1], DossierFingerprint.SupportedVersions); Assert.Equal(1, review.Version);
+        var baseline = DossierFingerprint.Compute(CompletenessTests.Complete(), 1);
+        var review = DossierFingerprint.Compute(WithScope(RegulatoryScope.RequiresLegalReview), 1);
+        Assert.Contains(1, DossierFingerprint.SupportedVersions); Assert.Equal(1, review.Version);
         Assert.NotEqual(baseline.SectionHashes["Applicability"], review.SectionHashes["Applicability"]);
         Assert.NotEqual(baseline.Fingerprint, review.Fingerprint);
         foreach (var section in DossierFingerprint.Sections.Where(s => s != "Applicability")) Assert.Equal(baseline.SectionHashes[section], review.SectionHashes[section]);
-        Assert.Equal(review.Fingerprint, DossierFingerprint.Compute(WithScope(RegulatoryScope.RequiresLegalReview)).Fingerprint);
-        Assert.NotEqual(DossierFingerprint.Compute(WithScope(RegulatoryScope.OutsideRegulatoryScope)).Fingerprint, review.Fingerprint);
+        Assert.Equal(review.Fingerprint, DossierFingerprint.Compute(WithScope(RegulatoryScope.RequiresLegalReview), 1).Fingerprint);
+        Assert.NotEqual(DossierFingerprint.Compute(WithScope(RegulatoryScope.OutsideRegulatoryScope), 1).Fingerprint, review.Fingerprint);
     }
 
     [Fact]

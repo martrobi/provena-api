@@ -324,9 +324,9 @@ public sealed class CompletenessTests
     }
 
     [Fact]
-    public void Policy_v2_is_explicit_and_states_its_limitations()
+    public void Policy_v3_is_explicit_and_states_its_limitations()
     {
-        Assert.Equal("provena-pilot-completeness", CompletenessPolicy.Id); Assert.Equal("2", CompletenessPolicy.Version);
+        Assert.Equal("provena-pilot-completeness", CompletenessPolicy.Id); Assert.Equal("3", CompletenessPolicy.Version);
         var limitations = string.Join(' ', CompletenessPolicy.Limitations);
         foreach (var expected in new[] { "Coordinate precision is not evaluated", "human judgement", "EORI", "no unit conversion", "stay unsupported" }) Assert.Contains(expected, limitations);
     }
@@ -356,7 +356,7 @@ public sealed class CompletenessTests
         var a = DossierFingerprint.Compute(Complete()); var b = DossierFingerprint.Compute(Complete());
         Assert.Equal(a.Fingerprint, b.Fingerprint); Assert.Equal(a.SectionHashes.OrderBy(x => x.Key), b.SectionHashes.OrderBy(x => x.Key));
         Assert.Matches("^[0-9a-f]{64}$", a.Fingerprint); Assert.Equal(DossierFingerprint.Sections.Order(), a.SectionHashes.Keys.Order());
-        Assert.All(a.SectionHashes.Values, h => Assert.Matches("^[0-9a-f]{64}$", h)); Assert.Equal(1, a.Version);
+        Assert.All(a.SectionHashes.Values, h => Assert.Matches("^[0-9a-f]{64}$", h)); Assert.Equal(DossierFingerprint.CurrentVersion, a.Version);
         Assert.Equal(["Shipment", "MasterData", "Applicability", "Recipients", "Lot", "Requirements", "Evidence"], DossierFingerprint.Sections);
     }
 
@@ -378,10 +378,10 @@ public sealed class CompletenessTests
     [Fact]
     public void Fingerprint_v1_output_is_unchanged_by_quantity_reconciliation()
     {
-        var fp = DossierFingerprint.Compute(Complete());
+        var fp = DossierFingerprint.Compute(Complete(), 1);
         // Golden values of the fixed Complete() fixture, computed before Quantity Reconciliation v1 existed: the derived reconciliation reads facts that are already fingerprinted,
         // so neither the fingerprint version nor any canonical byte changes. A deliberate change of the canonical form must add a new fingerprint version instead of editing these.
-        Assert.Equal(1, DossierFingerprint.CurrentVersion); Assert.Equal([1], DossierFingerprint.SupportedVersions); Assert.Equal(1, fp.Version);
+        Assert.Equal(2, DossierFingerprint.CurrentVersion); Assert.Equal([1, 2], DossierFingerprint.SupportedVersions); Assert.Equal(1, fp.Version); // version 2 (Source Quantity Allocation v1) added; version 1 stays frozen
         Assert.Equal("2cc06ed492c0914bcd43c7e0e779eb278077addf6ba90f87fbd9b792807df5a1", fp.Fingerprint);
         Assert.Equal("a9eca12f78bd7d6921d332f79cbbbd67eeefc930d8503a87ab8d2f22705fee8b", fp.SectionHashes["Shipment"]);
         Assert.Equal("be973df4c8eecd7cd0997f618695ca7fa5eb10911c55802a7b4575e8b551162e", fp.SectionHashes["MasterData"]);
@@ -390,7 +390,7 @@ public sealed class CompletenessTests
         Assert.Equal("3325329316424fdfa148fa19f1a818c30be225185b8c6e9dfb0439a7e25756bb", fp.SectionHashes["Lot"]);
         Assert.Equal("ee376dfa2565e336d4d764dd526212ac7dd9b8702f12b6c85e762b983bc5b596", fp.SectionHashes["Requirements"]);
         Assert.Equal("9290e9a6311eb387ceff8506e397e1e222caa718db60b268b05024f39861082d", fp.SectionHashes["Evidence"]);
-        Assert.Equal(1, ReviewSnapshot.SchemaVersion); // the review snapshot schema is unchanged too: the reconciliation is recomputed from the snapshot facts, not stored in it
+        Assert.Contains(1, ReviewSnapshot.SupportedVersions); // snapshot schema v1 stays readable (new reviews store schema v2, see SourceAllocationTests)
     }
 
     [Fact]

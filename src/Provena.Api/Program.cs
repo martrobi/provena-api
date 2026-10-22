@@ -89,6 +89,14 @@ builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document,
         { operation.Security ??= []; operation.Security.Add(new OpenApiSecurityRequirement { [new OpenApiSecuritySchemeReference("Bearer", document)] = [] }); }
     return Task.CompletedTask;
 })
+    // The versioned review snapshot is polymorphic WITHOUT a wire discriminator: the body's own schemaVersion (1 or 2) selects the shape, so the generated "$type" discriminator would be misleading.
+    .AddSchemaTransformer((schema, context, _) =>
+    {
+        if (context.JsonTypeInfo.Type != typeof(IReviewSnapshot)) return Task.CompletedTask;
+        schema.Discriminator = null;
+        schema.Description = "Versioned review snapshot. Exactly one shape applies, selected by the schemaVersion property of the body: 1 (facts without plot allocations) or 2 (adds facts.lot.contributions[].plots[].allocatedQuantity). There is no $type member.";
+        return Task.CompletedTask;
+    })
     // Routes that read their JSON body by hand (so authorization can precede parsing) declare it with WithManuallyReadJsonBody; advertise that body here.
     .AddOperationTransformer(async (operation, context, ct) =>
     {

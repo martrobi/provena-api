@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Provena.Api.Domain;
 namespace Provena.Api.Contracts;
 
@@ -40,7 +41,42 @@ public sealed record SnapshotContextV1(string? ProductName, string? ProductCatal
 // The completeness evaluation relied upon at review time. It never embeds review freshness or the latest review (those are dynamic).
 public sealed record SnapshotCompletenessV1(string PolicyId, string PolicyVersion, ApplicabilityStatus ApplicabilityStatus, DataCoverage DataCoverage, EvidenceReadiness EvidenceReadiness, IReadOnlyList<CompletenessItemDto> Items);
 
-public sealed record CaseRevisionSnapshotV1(int SchemaVersion, SnapshotFactsV1 Facts, SnapshotContextV1 Context, SnapshotCompletenessV1 Completeness);
+// A stored snapshot of any supported schema version. Serialization is polymorphic WITHOUT a discriminator, so each version keeps exactly its stored shape; the view members are explicit
+// (not serialized) and let consumers read shipment and lot facts without caring about the version.
+[JsonDerivedType(typeof(CaseRevisionSnapshotV1))]
+[JsonDerivedType(typeof(CaseRevisionSnapshotV2))]
+public interface IReviewSnapshot
+{
+    int SchemaVersion { get; }
+    string ShipmentReference { get; }
+    SnapshotLotV2? LotView { get; }
+}
+
+public sealed record CaseRevisionSnapshotV1(int SchemaVersion, SnapshotFactsV1 Facts, SnapshotContextV1 Context, SnapshotCompletenessV1 Completeness) : IReviewSnapshot
+{
+    string IReviewSnapshot.ShipmentReference => Facts.Shipment.Reference;
+    SnapshotLotV2? IReviewSnapshot.LotView => Facts.Lot?.ToV2();
+}
+
+// ---- snapshot v2: schema v1 plus the retained per-plot AllocatedQuantity (Source Quantity Allocation v1). v1 types above stay readable exactly as stored. --------------
+public sealed record SnapshotPlotLinkV2(Guid PlotId, Guid RevisionId, int RevisionNumber, string CountryCode, PlotGeometryType GeometryType, decimal? AreaHectares, string GeometrySha256, DateOnly? ProductionStartDate, DateOnly? ProductionEndDate, decimal? AllocatedQuantity);
+public sealed record SnapshotContributionV2(Guid ProducerId, decimal Quantity, QuantityUnit Unit, IReadOnlyList<SnapshotPlotLinkV2> Plots);
+public sealed record SnapshotLotV2(Guid? DossierId, Guid Id, int Number, string LotReference, decimal Quantity, QuantityUnit Unit, string? Note, QuantityReconciliationDto Reconciliation, IReadOnlyList<SnapshotContributionV2> Contributions);
+public sealed record SnapshotFactsV2(SnapshotShipmentV1 Shipment, SnapshotMasterDataV1? MasterData, SnapshotApplicabilityV1? Applicability, SnapshotRecipientsV1? Recipients, SnapshotLotV2? Lot,
+    SnapshotEvidenceV1 Evidence, IReadOnlyList<SnapshotRequirementV1> Requirements);
+public sealed record CaseRevisionSnapshotV2(int SchemaVersion, SnapshotFactsV2 Facts, SnapshotContextV1 Context, SnapshotCompletenessV1 Completeness) : IReviewSnapshot
+{
+    string IReviewSnapshot.ShipmentReference => Facts.Shipment.Reference;
+    SnapshotLotV2? IReviewSnapshot.LotView => Facts.Lot;
+}
+
+public static class SnapshotLotExtensions
+{
+    // A schema v1 lot carries no allocation: every plot link reads as "not recorded".
+    public static SnapshotLotV2 ToV2(this SnapshotLotV1 lot) => new(lot.DossierId, lot.Id, lot.Number, lot.LotReference, lot.Quantity, lot.Unit, lot.Note, lot.Reconciliation,
+        lot.Contributions.Select(c => new SnapshotContributionV2(c.ProducerId, c.Quantity, c.Unit,
+            c.Plots.Select(p => new SnapshotPlotLinkV2(p.PlotId, p.RevisionId, p.RevisionNumber, p.CountryCode, p.GeometryType, p.AreaHectares, p.GeometrySha256, p.ProductionStartDate, p.ProductionEndDate, null)).ToList())).ToList());
+}
 
 // ---- responses --------------------------------------------------------------------------------------------------------------------------
 public sealed record LatestReviewDto(Guid ReviewId, Guid CaseRevisionId, ReviewDecision Decision, DateTimeOffset ReviewedAtUtc, string PolicyVersion, bool PolicyChanged, IReadOnlyList<string> ChangedAreas);
@@ -48,7 +84,7 @@ public sealed record ReviewSummaryDto(Guid ReviewId, Guid CaseRevisionId, int Re
 public sealed record ReviewPinsDto(Guid? CaseDossierId, Guid? CaseLotId, Guid? CaseApplicabilityId, Guid? CaseRecipientStatementId, Guid? CaseMasterDataVersionId, Guid? GeoSubmissionId, Guid? SupplierSubmissionId,
     IReadOnlyList<Guid> DocumentIds, IReadOnlyList<Guid> EvidenceLinkIds);
 public sealed record ReviewDetailDto(Guid ReviewId, Guid CaseRevisionId, int RevisionNumber, ReviewDecision Decision, string Rationale, Guid ReviewerUserId, DateTimeOffset ReviewedAtUtc, string PolicyId, string PolicyVersion,
-    int SnapshotSchemaVersion, int FingerprintVersion, string Fingerprint, IReadOnlyDictionary<string, string> SectionHashes, ReviewPinsDto Pins, CaseRevisionSnapshotV1 Snapshot);
+    int SnapshotSchemaVersion, int FingerprintVersion, string Fingerprint, IReadOnlyDictionary<string, string> SectionHashes, ReviewPinsDto Pins, IReviewSnapshot Snapshot);
 public sealed record ReviewExportDto(Guid ReviewId, Guid CaseRevisionId, int RevisionNumber, ReviewDecision Decision, string Rationale, Guid ReviewerUserId, DateTimeOffset ReviewedAtUtc, string PolicyId, string PolicyVersion,
-    string Fingerprint, int FingerprintVersion, int SnapshotSchemaVersion, IReadOnlyDictionary<string, string> SectionHashes, CaseRevisionSnapshotV1 Snapshot, DateTimeOffset ExportedAtUtc, string Notice,
-    ProductionCoverageDto ProductionCoverage, string ProductionCoverageScope);
+    string Fingerprint, int FingerprintVersion, int SnapshotSchemaVersion, IReadOnlyDictionary<string, string> SectionHashes, IReviewSnapshot Snapshot, DateTimeOffset ExportedAtUtc, string Notice,
+    ProductionCoverageDto ProductionCoverage, string ProductionCoverageScope, SourceAllocationDto? SourceAllocation, string SourceAllocationScope);

@@ -101,6 +101,8 @@ public sealed class ContributionPlotValidator : AbstractValidator<ContributionPl
     public ContributionPlotValidator()
     {
         RuleFor(x => x.ProductionPlotId).NotEmpty(); RuleFor(x => x.PlotRevisionId).NotEmpty();
+        // Source Quantity Allocation v1: same range and precision as every other lot quantity; zero is invalid (a source that contributes nothing is not linked); the unit is the lot unit.
+        RuleFor(x => x.AllocatedQuantity).GreaterThan(0).LessThan(100000000000000m).PrecisionScale(20, 6, true).When(x => x.AllocatedQuantity.HasValue);
         RuleFor(x => x.ProductionEndDate).NotNull().When(x => x.ProductionStartDate.HasValue).WithMessage("Production end date is required when a start date is given.");
         RuleFor(x => x.ProductionStartDate).NotNull().When(x => x.ProductionEndDate.HasValue).WithMessage("Production start date is required when an end date is given.");
         RuleFor(x => x.ProductionEndDate).Must((x, end) => x.ProductionStartDate <= end).When(x => x.ProductionStartDate.HasValue && x.ProductionEndDate.HasValue).WithMessage("Production start date must be on or before the end date.");
@@ -120,6 +122,9 @@ public sealed class LotContributionValidator : AbstractValidator<LotContribution
 }
 public sealed class CaseLotValidator : AbstractValidator<CaseLotInput>
 {
+    private static List<ContributionPlotInput> Links(List<LotContributionInput>? contributions) =>
+        (contributions ?? []).Where(c => c?.Plots != null).SelectMany(c => c.Plots).Where(p => p != null).ToList();
+
     public CaseLotValidator()
     {
         RuleFor(x => x.LotReference).NotEmpty().MaximumLength(100);
@@ -131,6 +136,11 @@ public sealed class CaseLotValidator : AbstractValidator<CaseLotInput>
         RuleFor(x => x.Contributions).Must(c => c!.Select(i => i?.ProducerId).Distinct().Count() == c!.Count).When(x => x.Contributions != null).WithMessage("A producer may appear only once per lot.");
         RuleFor(x => x.Contributions).Must(c => c!.Sum(i => i?.Plots?.Count ?? 0) <= 5000).When(x => x.Contributions != null).WithMessage("At most 5000 plot links are allowed per lot.");
         RuleForEach(x => x.Contributions).Must((lot, c) => c == null || c.Unit == lot.Unit).When(x => x.Contributions != null).WithMessage("Contribution unit must equal the lot unit; units are not converted.");
+        // Source Quantity Allocation v1: all plot links of a lot version carry an allocation or none does, and an explicit clear never travels with values.
+        RuleFor(x => x.Contributions).Must(c => { var n = Links(c).Count(l => l.AllocatedQuantity.HasValue); return n == 0 || n == Links(c).Count; }).When(x => x.Contributions != null)
+            .WithMessage("Every plot link must carry an allocated quantity when any plot allocation is recorded.");
+        RuleFor(x => x.ClearSourceAllocations).Must((lot, clear) => !clear || !Links(lot.Contributions).Any(l => l.AllocatedQuantity.HasValue)).When(x => x.Contributions != null)
+            .WithMessage("clearSourceAllocations cannot be combined with allocated quantities.");
     }
 }
 // Completeness facts (ADR 0008). Structural / factual validation only: no completeness, sufficiency or legal-compliance rules.

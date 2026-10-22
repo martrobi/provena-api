@@ -155,8 +155,8 @@ public sealed class ReviewTests(ApiFactory factory)
         Assert.EndsWith($"/api/eudr-cases/{w.CaseId}/reviews/{reviewId}", response.Headers.Location?.ToString());
         Assert.Equal(HttpStatusCode.OK, (await o.Client.GetAsync(response.Headers.Location)).StatusCode); // the Location resolves
         Assert.Equal(1, review.GetProperty("revisionNumber").GetInt32()); Assert.Equal("AcceptedAsCompleteUnderPolicy", review.GetProperty("decision").GetString()); Assert.Equal(o.UserId, review.GetProperty("reviewerUserId").GetGuid());
-        Assert.Equal(Fingerprint(before), review.GetProperty("fingerprint").GetString()); Assert.Equal(1, review.GetProperty("fingerprintVersion").GetInt32()); Assert.Equal(CompletenessPolicy.Version, review.GetProperty("policyVersion").GetString());
-        Assert.Equal(1, review.GetProperty("snapshotSchemaVersion").GetInt32());
+        Assert.Equal(Fingerprint(before), review.GetProperty("fingerprint").GetString()); Assert.Equal(2, review.GetProperty("fingerprintVersion").GetInt32()); Assert.Equal(CompletenessPolicy.Version, review.GetProperty("policyVersion").GetString());
+        Assert.Equal(2, review.GetProperty("snapshotSchemaVersion").GetInt32());
         Assert.Equal(DossierFingerprintSections(), review.GetProperty("sectionHashes").EnumerateObject().Select(p => p.Name).Order().ToArray());
         AssertNoOrganizationId(review);
 
@@ -654,7 +654,7 @@ public sealed class ReviewTests(ApiFactory factory)
         Assert.StartsWith("Plot ", snapshot.GetProperty("context").GetProperty("plots")[0].GetProperty("name").GetString());
         Assert.False(snapshot.GetProperty("context").GetProperty("pinnedRevisions")[0].GetProperty("supersededAtReviewTime").GetBoolean());
         Assert.Equal("provena-pilot-completeness", snapshot.GetProperty("completeness").GetProperty("policyId").GetString()); Assert.NotEmpty(snapshot.GetProperty("completeness").GetProperty("items").EnumerateArray());
-        Assert.Equal(1, snapshot.GetProperty("schemaVersion").GetInt32()); AssertNoOrganizationId(before);
+        Assert.Equal(2, snapshot.GetProperty("schemaVersion").GetInt32()); AssertNoOrganizationId(before);
 
         await Ok(c.PutAsJsonAsync($"/api/suppliers/{w.SupplierId}", new { name = "Totally different supplier", email = "x@example.test", postalAddress = "Elsewhere", countryCode = "AR" }));
         await Ok(c.PutAsJsonAsync($"/api/products/{w.ProductId}", new { name = "Renamed product", cnCode = "0902", commodityType = "Cocoa", description = "Rewritten catalogue text" }));
@@ -756,7 +756,7 @@ public sealed class ReviewTests(ApiFactory factory)
         AssertNoOrganizationId(r);
         Assert.Equal(reviewId, r.GetProperty("reviewId").GetGuid()); Assert.Equal("AcceptedAsCompleteUnderPolicy", r.GetProperty("decision").GetString()); Assert.Equal("Reviewed against the recorded facts.", r.GetProperty("rationale").GetString());
         Assert.Equal(o.UserId, r.GetProperty("reviewerUserId").GetGuid()); Assert.Equal("provena-pilot-completeness", r.GetProperty("policyId").GetString()); Assert.Equal(review.GetProperty("fingerprint").GetString(), r.GetProperty("fingerprint").GetString());
-        Assert.Equal(1, r.GetProperty("fingerprintVersion").GetInt32()); Assert.Equal(1, r.GetProperty("snapshotSchemaVersion").GetInt32()); Assert.Equal(JsonValueKind.String, r.GetProperty("exportedAtUtc").ValueKind);
+        Assert.Equal(2, r.GetProperty("fingerprintVersion").GetInt32()); Assert.Equal(2, r.GetProperty("snapshotSchemaVersion").GetInt32()); Assert.Equal(JsonValueKind.String, r.GetProperty("exportedAtUtc").ValueKind);
         Assert.Contains("not a legal compliance determination, risk assessment or DDS", r.GetProperty("notice").GetString());
         var detail = await Json(await c.GetAsync($"/api/eudr-cases/{w.CaseId}/reviews/{reviewId}"));
         Assert.Equal(JsonSerializer.Serialize(detail.GetProperty("snapshot")), JsonSerializer.Serialize(r.GetProperty("snapshot"))); // the stored snapshot, verbatim

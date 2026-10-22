@@ -3,7 +3,7 @@ using Provena.Api.Contracts;
 using Provena.Api.Domain;
 namespace Provena.Api.Services;
 public sealed record CompletenessEvaluation(IReadOnlyList<CompletenessItemDto> Items, ApplicabilityStatus ApplicabilityStatus, DataCoverage DataCoverage, EvidenceReadiness EvidenceReadiness, QuantityReconciliationResultDto QuantityReconciliation);
-// Pure evaluation of policy v2 (ADR 0008; v2 adds Quantity Reconciliation v1) over DossierFacts. Every item states exactly what was checked. Nothing here is a legal-compliance, safety or
+// Pure evaluation of policy v3 (ADR 0008; v2 adds Quantity Reconciliation v1, v3 adds Source Quantity Allocation v1) over DossierFacts. Every item states exactly what was checked. Nothing here is a legal-compliance, safety or
 // deforestation-free verdict: Satisfied means "this recorded fact satisfies this check". Item order is deterministic.
 public static partial class CompletenessEvaluator
 {
@@ -109,6 +109,24 @@ public static partial class CompletenessEvaluator
         items.Add(QuantityItem("SHIPMENT_LOT_QUANTITY_MATCH", q, QuantityReconciliation.ShipmentLot, "CaseLot", f.Lot?.Id));
         items.Add(QuantityItem("SUPPLIER_CONFIRMED_QUANTITY_MATCH", q, QuantityReconciliation.SupplierConfirmedShipment, "SupplierSubmission", f.Submission?.Id));
         items.Add(QuantityItem("LOT_RECONCILED", q, QuantityReconciliation.ContributionsLot, "CaseLot", f.Lot?.Id));
+        items.Add(SourceAllocationItem(f));
+    }
+
+    // Policy v3: allocation of the lot to plots is optional. Not recorded (or no lot) is NotApplicable; once recorded it must reconcile exactly (MissingData -> Missing, Under/Over -> Invalid).
+    private static CompletenessItemDto SourceAllocationItem(DossierFacts f)
+    {
+        const CompletenessGroup g = CompletenessGroup.Quantity;
+        var allocation = SourceAllocation.FromFacts(f);
+        if (allocation == null) return Item(SourceAllocation.ItemCode, g, CompletenessItemStatus.NotApplicable, "Not applicable: no case lot has been recorded.");
+        var reason = allocation.Status switch
+        {
+            SourceAllocationStatus.NotRecorded => "Not applicable: no plot allocation has been recorded for the lot.",
+            SourceAllocationStatus.Matched => $"Plot allocations ({Num(allocation.AllocatedQuantity)} {allocation.Unit}) equal the lot quantity exactly and every producer contribution is fully allocated.",
+            SourceAllocationStatus.MissingData => "Plot allocations are recorded but a producer contribution has no allocated plot link; every contribution must be allocated to its plots.",
+            SourceAllocationStatus.UnderAllocated => $"Plot allocations ({Num(allocation.AllocatedQuantity)} {allocation.Unit}) do not cover the lot quantity ({Num(allocation.LotQuantity)} {allocation.Unit}) and its producer contributions; unallocated {Num(allocation.UnallocatedQuantity)} {allocation.Unit}.",
+            _ => $"Plot allocations ({Num(allocation.AllocatedQuantity)} {allocation.Unit}) exceed the lot quantity or a producer contribution.",
+        };
+        return Item(SourceAllocation.ItemCode, g, SourceAllocation.ItemStatus(allocation.Status), reason, "CaseLot", f.Lot!.Id);
     }
 
     // MissingData -> Missing; UnitMismatch and QuantityMismatch -> Invalid; the structured detail lives in the reconciliation result.

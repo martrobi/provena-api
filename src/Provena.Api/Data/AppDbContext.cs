@@ -128,6 +128,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, TenantC
         b.Entity<ContributionPlot>().HasOne<ProductionPlot>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ProducerId, x.ProductionPlotId }).HasPrincipalKey(x => new { x.OrganizationId, x.ProducerId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         b.Entity<ContributionPlot>().HasOne<PlotRevision>().WithMany().HasForeignKey(x => new { x.OrganizationId, x.ProductionPlotId, x.PlotRevisionId }).HasPrincipalKey(x => new { x.OrganizationId, x.ProductionPlotId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         b.Entity<ContributionPlot>().HasIndex(x => new { x.LotContributionId, x.ProductionPlotId }).IsUnique();
+        b.Entity<ContributionPlot>().Property(x => x.AllocatedQuantity).HasPrecision(20, 6);
+        b.Entity<ContributionPlot>().ToTable(t => t.HasCheckConstraint("CK_ContributionPlots_AllocatedQuantityPositive", "\"AllocatedQuantity\" IS NULL OR \"AllocatedQuantity\" > 0"));
 
         // Completeness facts (ADR 0008): operator profile, case master-data copy, applicability, recipients and evidence links.
         b.Entity<Supplier>().Property(x => x.PostalAddress).HasMaxLength(1000);

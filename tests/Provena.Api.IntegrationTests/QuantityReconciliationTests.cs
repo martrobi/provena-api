@@ -10,6 +10,7 @@ using Provena.Api.Auth;
 using Provena.Api.Contracts;
 using Provena.Api.Data;
 using Provena.Api.Domain;
+using Provena.Api.Services;
 using Xunit;
 using static Provena.Api.IntegrationTests.CompletenessReadModelTests;
 namespace Provena.Api.IntegrationTests;
@@ -66,10 +67,11 @@ public sealed class QuantityReconciliationTests(ApiFactory factory)
     private static async Task<string> CaseStatus(HttpClient c, Guid caseId) => (await Json(await c.GetAsync($"/api/eudr-cases/{caseId}"))).GetProperty("status").GetString()!;
 
     // Simulates an Owner review made BEFORE Quantity Reconciliation existed (policy v1, which never compared the shipment or the confirmed quantity). The HTTP review route can no longer
-    // produce one for a mismatching dossier, so it is inserted directly with the current fingerprint to make it Current.
-    private async Task<Guid> InsertPolicyV1AcceptedReview(Owner owner, Guid caseId, string currentFingerprint)
+    // produce one for a mismatching dossier, so it is inserted directly with the current FINGERPRINT VERSION 1 value (new reviews use version 2) to make it Current.
+    private async Task<Guid> InsertPolicyV1AcceptedReview(Owner owner, Guid caseId)
     {
         await using var scope = factory.Services.CreateAsyncScope(); await using var db = TenantDb(scope, owner.Org);
+        var currentFingerprint = DossierFingerprint.Compute(await new DossierFactsBuilder(db).Build(await db.Cases.SingleAsync(x => x.Id == caseId), CancellationToken.None), 1).Fingerprint;
         var number = (await db.CaseRevisions.Where(x => x.EudrCaseId == caseId).MaxAsync(x => (int?)x.Number) ?? 0) + 1;
         var revision = new CaseRevision
         {
@@ -100,7 +102,7 @@ public sealed class QuantityReconciliationTests(ApiFactory factory)
         Assert.Equal("NotApplicable", confirmed.GetProperty("status").GetString()); Assert.True(confirmed.GetProperty("actual").GetProperty("unitImplied").GetBoolean());
         foreach (var code in new[] { "LOT_PRESENT", "SHIPMENT_LOT_QUANTITY_MATCH", "LOT_RECONCILED" }) Assert.Equal("Satisfied", StatusOf(matched, code));
         Assert.Equal("NotApplicable", StatusOf(matched, "SUPPLIER_CONFIRMED_QUANTITY_MATCH"));
-        Assert.Equal(["LOT_PRESENT", "SHIPMENT_LOT_QUANTITY_MATCH", "SUPPLIER_CONFIRMED_QUANTITY_MATCH", "LOT_RECONCILED"], matched.GetProperty("items").EnumerateArray().Where(i => i.GetProperty("group").GetString() == "Quantity").Select(i => i.GetProperty("code").GetString()));
+        Assert.Equal(["LOT_PRESENT", "SHIPMENT_LOT_QUANTITY_MATCH", "SUPPLIER_CONFIRMED_QUANTITY_MATCH", "LOT_RECONCILED", "SOURCE_ALLOCATION_RECONCILED"], matched.GetProperty("items").EnumerateArray().Where(i => i.GetProperty("group").GetString() == "Quantity").Select(i => i.GetProperty("code").GetString()));
 
         // A lot that differs from the shipment: exact, no tolerance, and the lot still reconciles with its own contributions.
         await Ok(SaveLot(w, 25m, 25m));
@@ -205,7 +207,7 @@ public sealed class QuantityReconciliationTests(ApiFactory factory)
         var link = await Json(await o.Client.PostAsync($"/api/eudr-cases/{w.CaseId}/supplier-request", null)); var token = link.GetProperty("publicUrl").GetString()!.Split('/').Last();
         var statusBefore = await CaseStatus(o.Client, w.CaseId);
         var state = await Completeness(o.Client, w.CaseId);
-        var reviewId = await InsertPolicyV1AcceptedReview(o, w.CaseId, Fingerprint(state));
+        var reviewId = await InsertPolicyV1AcceptedReview(o, w.CaseId);
         var current = await Completeness(o.Client, w.CaseId);
         Assert.Equal("Current", current.GetProperty("reviewFreshness").GetString()); Assert.True(current.GetProperty("latestReview").GetProperty("policyChanged").GetBoolean()); Assert.Equal("1", current.GetProperty("latestReview").GetProperty("policyVersion").GetString());
 
@@ -255,7 +257,7 @@ public sealed class QuantityReconciliationTests(ApiFactory factory)
         Assert.Equal(["quantityConfirmationWaiverBasis"], CheckOf(state, "SUPPLIER_CONFIRMED_SHIPMENT").GetProperty("missingFields").EnumerateArray().Select(x => x.GetString()));
         Assert.Contains("REQUIREMENT_QuantityConfirmation", (await Problem(await PostReview(o.Client, w.CaseId, "AcceptedAsCompleteUnderPolicy", state), HttpStatusCode.Conflict)).GetProperty("errors").GetProperty("failingItems").EnumerateArray().Select(i => i.GetProperty("code").GetString()));
 
-        var reviewId = await InsertPolicyV1AcceptedReview(o, w.CaseId, Fingerprint(state));
+        var reviewId = await InsertPolicyV1AcceptedReview(o, w.CaseId);
         Assert.Equal("Current", (await Completeness(o.Client, w.CaseId)).GetProperty("reviewFreshness").GetString());
         var problem = await Problem(await Close(o.Client, w.CaseId, reviewId, "DDS-ABC-3"), HttpStatusCode.Conflict);
         Assert.Equal("QuantityNotReconciled", problem.GetProperty("errors").GetProperty("reason").GetString()); Assert.Equal("MissingData", problem.GetProperty("errors").GetProperty("quantityReconciliation").GetProperty("outcome").GetString());
@@ -272,7 +274,7 @@ public sealed class QuantityReconciliationTests(ApiFactory factory)
     {
         var o = await NewOwner(); var w = await Build(o.Client, o.Org);
         var state = await Completeness(o.Client, w.CaseId); Assert.Equal("Matched", Outcome(state));
-        var reviewId = await InsertPolicyV1AcceptedReview(o, w.CaseId, Fingerprint(state));
+        var reviewId = await InsertPolicyV1AcceptedReview(o, w.CaseId);
         await RiskTestSupport.EnsureNegligible(o.Client, w.CaseId, reviewId);
         await ExternalDdsTestSupport.RecordOk(o.Client, w.CaseId, reviewId, "DDS-ABC-2");
         var response = await Close(o.Client, w.CaseId, reviewId, "DDS-ABC-2");

@@ -12,19 +12,21 @@ public sealed record FingerprintResult(int Version, string Fingerprint, IReadOnl
 // Excluded on purpose: master-data version id and context fields (ProductName, ProductCatalogueDescription), producer/plot names and active flags,
 // RevisionSupersededAtUtc, case status, audit events, export timestamps and live catalogue drift.
 // A change to the canonical form adds a new version; old versions stay implemented so reviews made under them remain comparable.
+// Version 2 (Source Quantity Allocation v1) is version 1 byte for byte plus the canonical allocatedQuantity (null when not recorded) of every plot link in the Lot section and
+// fingerprintVersion 2 in the envelope. Version 1 output is frozen: a review made under it keeps recomputing with version 1 (and still goes Stale on any allocation change, because the lot id changes).
 public static class DossierFingerprint
 {
-    public const int CurrentVersion = 1;
-    public static readonly IReadOnlyList<int> SupportedVersions = [1];
+    public const int CurrentVersion = 2;
+    public static readonly IReadOnlyList<int> SupportedVersions = [1, 2];
     public static readonly IReadOnlyList<string> Sections = ["Shipment", "MasterData", "Applicability", "Recipients", "Lot", "Requirements", "Evidence"];
 
     public static FingerprintResult Compute(DossierFacts facts, int version = CurrentVersion)
     {
-        if (version != 1) throw new ArgumentOutOfRangeException(nameof(version), "Unsupported fingerprint version.");
-        return ComputeV1(facts);
+        if (!SupportedVersions.Contains(version)) throw new ArgumentOutOfRangeException(nameof(version), "Unsupported fingerprint version.");
+        return ComputeVersioned(facts, version);
     }
 
-    private static FingerprintResult ComputeV1(DossierFacts f)
+    private static FingerprintResult ComputeVersioned(DossierFacts f, int version)
     {
         var sections = new Dictionary<string, byte[]>
         {
@@ -32,17 +34,17 @@ public static class DossierFingerprint
             ["MasterData"] = Write(w => MasterData(w, f.MasterData)),
             ["Applicability"] = Write(w => Applicability(w, f.Applicability)),
             ["Recipients"] = Write(w => Recipients(w, f.Recipients, f.RecipientEntries)),
-            ["Lot"] = Write(w => Lot(w, f)),
+            ["Lot"] = Write(w => Lot(w, f, version)),
             ["Requirements"] = Write(w => Requirements(w, f.Requirements)),
             ["Evidence"] = Write(w => Evidence(w, f)),
         };
         var envelope = Write(w =>
         {
-            w.WriteStartObject(); w.WriteNumber("fingerprintVersion", 1);
+            w.WriteStartObject(); w.WriteNumber("fingerprintVersion", version);
             foreach (var name in Sections) { w.WritePropertyName(char.ToLowerInvariant(name[0]) + name[1..]); w.WriteRawValue(sections[name], skipInputValidation: true); }
             w.WriteEndObject();
         });
-        return new(1, Hex(envelope), Sections.ToDictionary(n => n, n => Hex(sections[n])));
+        return new(version, Hex(envelope), Sections.ToDictionary(n => n, n => Hex(sections[n])));
     }
 
     public static string CanonicalDecimal(decimal value)
@@ -110,7 +112,7 @@ public static class DossierFingerprint
     }
 
     // Producer/plot labels, active flags and RevisionSupersededAtUtc are not facts. The pinned revision id is, with its factual metadata and the geometry hash.
-    private static void Lot(Utf8JsonWriter w, DossierFacts f)
+    private static void Lot(Utf8JsonWriter w, DossierFacts f, int version)
     {
         if (f.Lot == null) { w.WriteNullValue(); return; }
         var lot = f.Lot; var allocated = f.Contributions.Sum(c => c.Contribution.Quantity);
@@ -127,6 +129,7 @@ public static class DossierFingerprint
                 w.WriteStartObject(); Guid_(w, "plotId", l.Link.ProductionPlotId); Guid_(w, "revisionId", l.Link.PlotRevisionId); w.WriteNumber("revisionNumber", l.Revision.Number);
                 Str(w, "countryCode", l.Revision.CountryCode); Enum_(w, "geometryType", l.Revision.GeometryType); Dec(w, "areaHectares", l.Revision.AreaHectares);
                 Str(w, "geometrySha256", GeometrySha256(l.Revision.GeometryJson)); Day(w, "productionStartDate", l.Link.ProductionStartDate); Day(w, "productionEndDate", l.Link.ProductionEndDate);
+                if (version >= 2) Dec(w, "allocatedQuantity", l.Link.AllocatedQuantity);
                 w.WriteEndObject();
             }
             w.WriteEndArray(); w.WriteEndObject();
